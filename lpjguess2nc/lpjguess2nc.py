@@ -5,7 +5,7 @@
 #
 # Christian Werner
 # christian.werner@senckenberg.de
-"""lpjguess2nc._lpjguess2nc: provides entry point main()."""
+"""lpjguess2nc.lpjguess2nc: provides entry point main()."""
 
 import logging
 import numpy as np

@@ -9,7 +9,7 @@ from os import path
 import re
 
 version = re.search('^__version__\s*=\s*"(.*)"',
-                    open('lpjguess2nc/_lpjguess2nc.py').read(), re.M).group(1)
+                    open('lpjguess2nc/lpjguess2nc.py').read(), re.M).group(1)
 
 here = path.abspath(path.dirname(__file__))
 
@@ -83,7 +83,7 @@ setup(name='lpjguess2nc',
       extras_require={'test': ['pytest'], },
       package_data={'lpjguess2nc': ['data/lpjguess2nc.conf']},
       include_package_data=True,
-      entry_points={'console_scripts': ['lpjguess2nc=lpjguess2nc._lpjguess2nc:main']},
+      entry_points={'console_scripts': ['lpjguess2nc=lpjguess2nc.lpjguess2nc:main']},
       test_suite='lpjguess2nc.test.test_lpjguess2nc',
       cmdclass={'test': PyTest, 'sdist': PyPack},
       dependency_links=dependency_links)
