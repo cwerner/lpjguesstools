@@ -32,6 +32,15 @@ basecols = ['id', 'year', 'julianday']
 
 YEARS = range(1950, 1990)
 
+
+def update_attrs(obj, *args, **kwargs):
+    """Update netcdf attributes."""
+    obj.attrs.update(*args, **kwargs)
+    return obj
+
+#ds.pipe(update_attrs, foo='bar')
+
+
 def enum(*sequential, **named):
     """ Python2 enum type """
     enums = dict(zip(sequential, range(len(sequential))), **named)
@@ -98,11 +107,13 @@ class IndexMapper():
         return (jx, ix)
 
 
-def get_annual_data(var, refarray, inpath='', years=[], use_month_dim=False):
+def get_annual_data(var, landforms, inpath='', years=[], use_month_dim=False, subset=''):
     """ Parse variable and return DataArrays (data, total_data) """
 
-    lats = refarray.coords['lat']
-    lons = refarray.coords['lon']
+    # derive dimensions and landform info from landforms file
+    lats = landforms.coords['lat']
+    lons = landforms.coords['lon']
+    lfids = landforms.coords['lf_id']
     
     mapper = IndexMapper(lats, lons)
 
@@ -117,7 +128,6 @@ def get_annual_data(var, refarray, inpath='', years=[], use_month_dim=False):
     except:
         df = pd.read_csv(os.path.join(inpath, "%s.out.gz" % var),
             delim_whitespace=True)
-        
     # limit df to years
     if len(years) > 0:
         print years
@@ -132,39 +142,54 @@ def get_annual_data(var, refarray, inpath='', years=[], use_month_dim=False):
     
     ismonthly = False
     ispft     = False
+    hasstand = False    # stand/ patch specific output
+    col_names = df.columns.values
+
     PFTS = []
 
+    df = df.head(100000)
+
+    # speedup (remove this if we want to get diversity measures)
+    # calc mean over patches
+    if 'Patch' in col_names:
+        print '  averaging patches...'
+        groupcols = ['Lon','Lat','Year', 'Stand']
+        df = df.groupby(groupcols).mean().reset_index()
+
+    # determine data type
+    if (('Total' in col_names) and ('C3G' in col_names)): ispft = True
+    if 'Stand' in col_names: hasstand = True
+    if (('Jan' in col_names) and ('Dec' in col_names)): ismonthly = True
+        
     # determine start column position
-    if 'Patch' in df.columns.values:
-        cid_start = df.columns.values.tolist().index('Patch') + 1
-    elif 'Stand' in df.columns.values:
-        cid_start = df.columns.values.tolist().index('Stand') + 1
-    else:
-        cid_start = df.columns.values.tolist().index('Year') + 1
+    def get_data_column_index(cols, ispft, hasstand):
+        """Determine the start and end position of data columns."""
 
-    # determine end column position
-    # default: last column
-    cid_end   = len(df.columns.values.tolist()) 
+        # determine start position of data
+        if 'Patch' in cols:
+            cid_start = cols.tolist().index('Patch') + 1
+        elif 'Stand' in cols:
+            cid_start = cols.tolist().index('Stand') + 1
+        else:
+            cid_start = cols.tolist().index('Year') + 1
+
+        # determine end position of data
+        cid_end   = len(df.columns.values.tolist()) 
+        if ismonthly:
+            cid_end   = cols.tolist().index('Dec')
+        if ispft:
+            cid_end = cols.tolist().index('Total') - 1
+
+        return (cid_start, cid_end)
     
-    # determine if monthly file
-    if 'Jan' in df.columns.values:
-        ismonthly = True
-        # time axis years x12
-        cid_end   = df.columns.values.tolist().index('Dec')
-        
-    # determine if PFT file
-    if (('Total' in df.columns.values) and ('C3G' in df.columns.values)):
-        ispft = True
-        # time axis years 
-        # level axis PFT S4
+    cid_start, cid_end = get_data_column_index(col_names, ispft, hasstand)
+    if ispft:
+        PFTS = col_names.tolist()[cid_start:cid_end+1]
 
-        cid_end = df.columns.values.tolist().index('Total') - 1
-        PFTS = df.columns.tolist()[cid_start:cid_end+1]
-        
     # setup output array
-    ylen, xlen = refarray.values.shape
-    xcoords = refarray.coords['lon']
-    ycoords = refarray.coords['lat']
+    #ylen, xlen = landforms.values.shape
+    xcoords = landforms.coords['lon']
+    ycoords = landforms.coords['lat']
     lcoords = None  # pft axis
     mcoords = None  # extra month axis
 
@@ -220,6 +245,58 @@ def get_annual_data(var, refarray, inpath='', years=[], use_month_dim=False):
     data.attrs['missing_value'] = NODATA
     data.attrs['_FillValue'] = NODATA    
     # optional (second) DataArray for Total (PFT) data
+
+    # landform lookup
+    # TODO: optimize that we only need to do this once
+    #       maybe wrap into a class (?)
+    
+    # processing for stand/ patch output
+    if hasstand:
+        lookup = {}
+        lfids = landforms['lf_id'].values
+        # add stand weight column (using lanform fraction)
+        df['lffrac'] = -1.0
+        
+        done_coords = []
+
+        if subset=='north':
+            # aspect bit 1
+            subset_stands = [x for x in lfids if str(int(x))[-1] == '1']
+        elif subset == 'south':
+            # aspect bit 3
+            subset_stands = [x for x in lfids if str(int(x))[-1] == '3']
+        else:
+            subset_stands = lfids
+
+        for rx, row in df.iterrows():
+            # get coord and add to lookup table, do not run if coord is present
+            jx, ix = mapper(row.Lat, row.Lon)
+            stand = int(row.Stand)
+       
+            if (jx, ix, stand) not in lookup.keys():
+                if (jx, ix) not in done_coords:
+                    done_coords.append((jx, ix))
+                frac = landforms['fraction'][:, jx, ix].sel(lf_id=stand)
+                lookup[(jx, ix, stand)] = frac.values * 0.01
+
+            # assign value (-1 values will be removed in the next step)
+            if stand in subset_stands:
+                df.loc[rx, 'lffrac'] = lookup[(jx, ix, stand)]
+        
+
+        # drop rows if they are not in subset_stands 
+        df = df[df['lffrac'] != -1]
+
+        # aggregate (subset) of landforms
+
+        def weighted(x, cols, w="lffrac"):
+            """Weighted-average over a group of rows."""    
+            return pd.Series(np.average(x[cols], weights=x[w], axis=0), cols)
+
+        groupcols = ['Lon','Lat','Year']
+        exclcols = groupcols + ['lffrac']
+        datacols = [x for x in list(df.columns.values) if x not in exclcols]
+        df = df.groupby(groupcols).apply(weighted, datacols).reset_index()    
     
     for _, row in df.iterrows():
         jx, ix = mapper(row.Lat, row.Lon)
@@ -246,7 +323,8 @@ def get_annual_data(var, refarray, inpath='', years=[], use_month_dim=False):
                 print '  for each column (with filename prefix)'
                 print var
                 exit()
-                
+
+    # add attributes for total variable
     if type(data2) == xr.DataArray:
         data2.attrs['units'] = '-'
         data2.attrs['missing_value'] = NODATA
@@ -264,33 +342,49 @@ def main():
     use_month_dim = True
         
     print 'TODO: We need to produce proper time attributes'
-    reffile = os.path.join(inpath, '..', 'lfdata', 'sites_2d.nc')
-    print reffile
-    refarray = xr.open_dataset(reffile)['elevation']
+    reffile = os.path.join(inpath, '..', 'lfdata', 'landforms_2d.nc')
     
-    vars = ['lai','mlai','fpc','cmass','mrunoff','mwcont_upper','mnpp','mgpp'] #'dens', 'mnpp','mgpp','firert', 'cmass','mlai','fpc','lai']
+    print reffile
+    landforms = xr.open_dataset(reffile).load()
+    
+    vars = ['sp_mgpp', 'sp_mprec', 'sp_mgdd5', 'sp_mtemp', 
+            'lai','mlai','fpc','cmass','mrunoff',
+            'mwcont_upper','mnpp'] #,'mgpp']
+    
     ds = xr.Dataset()
     
     for var in vars:
-        print 'parsing %s ...' % var
-        da1, da2 = get_annual_data(var, refarray, 
+        print 'processing variable %s ...' % var
+        # create extra vars for north / south differences caused by exposition
+        if 'sp_' in var:
+            for sset in ['north', 'south', '']:
+                suffix = ''
+                if sset != '':
+                    suffix = '_%s' % sset
+                    
+                da1, da2 = get_annual_data(var, landforms,
+                                        inpath=inpath, 
+                                        use_month_dim=use_month_dim, subset=sset)
+
+                ds[var + suffix] = da1
+                if type(da2) == xr.DataArray:
+                    ds['tot_%s%s' % (var, suffix)] = da2
+        else:
+            print 'parsing %s ...' % var
+            da1, da2 = get_annual_data(var, landforms, 
                                    inpath=inpath, 
-                                   use_month_dim=use_month_dim) #, years=YEARS)
+                                   use_month_dim=use_month_dim)
         
-        ds[var] = da1
-        if type(da2) == xr.DataArray:
-            ds['tot_%s' % var] = da2
-    
-    if use_month_dim:
-        c_vars = ['time','month','pft','lat','lon']
-    else:
-        c_vars = ['time','time_m','pft','lat','lon']
-    
+            ds[var] = da1
+            if type(da2) == xr.DataArray:
+                ds['tot_%s' % var] = da2
+
+    # all potential coordinate variables
+    all_c_vars = ['time','time_m','month','pft','lat','lon']
+    c_vars = [x for x in all_c_vars if x in ds.coords.keys()]
+
+    # order variables (coords first, then by name)
     d_vars = [x for x in sorted([x for x in ds.data_vars]) if x not in c_vars]
-    print c_vars
-    print d_vars
-    
-    print c_vars + d_vars
     
     ds[c_vars + d_vars].to_netcdf(outname, format='NETCDF4_CLASSIC', unlimited_dims='time')
 
