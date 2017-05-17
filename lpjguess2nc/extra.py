@@ -121,7 +121,7 @@ def get_config(cfgFile=None):
             _copy_default_config()
             cfgFile = _find_config()
     
-    print 'Using conf file:', cfgFile
+    log.debug("Using conf file: %s" % cfgFile)
     cfg = _parse_config(cfgFile)
 
     return cfg

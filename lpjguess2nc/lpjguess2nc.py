@@ -105,35 +105,35 @@ class IndexMapper():
                 self._lons = lons.tolist()
                 self._lats = lats.tolist()
             else:
-                print 'Only 1D numpy arrays supported'
-                print lats
-                print lons
-                exit()
+                log.critical("Only 1D numpy arrays supported")
+                log.critical(lats)
+                log.critical(lons)
+                exit(1)
         elif ((type(lats) == xr.DataArray) and (type(lons) == xr.DataArray)):
             self._lons = lons.values.tolist()
             self._lats = lats.values.tolist()
         else:
-            print 'Only 1D numpy arrays or lists supported'
-            print lats
-            print lons
-            exit()
+            log.critical("Only 1D numpy arrays or lists supported")
+            log.critical(lats)
+            log.critical(lons)
+            exit(1)
 
     def __call__(self, lat, lon):
         if ((lon >= self._lons[0]) and (lon <= self._lons[-1])):
             ix = self._lons.index(lon)
         else:
-            print 'Lon %s out of range [%f...%f]' % (lon,
+            log.critical("Lon %s out of range [%f...%f]" % (lon,
                                                      self._lons[0],
-                                                     self._lons[-1])
-            exit()
+                                                     self._lons[-1]))
+            exit(1)
 
         if ((lat >= self._lats[0]) and (lat <= self._lats[-1])):
             jx = self._lats.index(lat)
         else:
-            print 'Lon %s out of range [%f...%f]' % (lon,
+            log.critical("Lon %s out of range [%f...%f]" % (lon,
                                                      self._lats[0],
-                                                     self._lats[-1])
-            exit()
+                                                     self._lats[-1]))
+            exit(1)
         return (jx, ix)
 
 
@@ -160,17 +160,17 @@ def get_annual_data(var, landforms, args, inpath='',
         df = pd.read_csv(os.path.join(inpath, "%s.out.gz" % var),
             delim_whitespace=True)
             
-    print '  Total number of data rows in file (raw data): ', len(df)
+    log.debug("  Total number of data rows in file (raw data): %d" % len(df))
     
     # limit df to years
     if len(years) > 0:
-        print '  Limiting years'
+        log.debug("  Limiting years.")
         df = df[ (df.Year >= years[0]) & (df.Year < years[-1])]
     if len(df) == 0:
-        print 'Requested years not in data.'
-        exit()
+        log.critical("Requested years not in data.")
+        exit(1)
 
-    print '  Total number of data rows in file (year sel): ', len(df)
+    log.debug("  Total number of data rows in file (year sel): %d" % len(df))
 
     # determine z dimension
     nyears = max(df.Year) - min(df.Year)
@@ -206,7 +206,7 @@ def get_annual_data(var, landforms, args, inpath='',
             groupcols = ['Lon','Lat','Year']
         df = df.groupby(groupcols).mean().reset_index()
 
-    print '  Total number of data rows in file (final):    ', len(df)
+    log.debug("  Total number of data rows in file (final):    %d" % len(df))
 
     # determine start column position
     def get_data_column_index(df):
@@ -380,11 +380,11 @@ def get_annual_data(var, landforms, args, inpath='',
             if len(rdata) == 1:
                 data[zpos,jx,ix] = rdata
             else:
-                print 'Mixed output file not handled yet.'
-                print '  this should create a single DataArray'
-                print '  for each column (with filename prefix)'
-                print var
-                exit()
+                log.critical("Mixed output file not handled yet:")
+                log.critical("  This should create a single DataArray")
+                log.critical("  for each column (with filename prefix")
+                log.critical(var)
+                exit(1)
 
     # add attributes for total variable
     if type(data2) == xr.DataArray:
@@ -429,20 +429,26 @@ def main():
             landforms = xr.Dataset()
             landforms['dummy'] = dummy
         else:
-            print 'No refdata section in conf file found nor -r flag specified.\n'
-            print parser.print_help()
+            log.critical("No refdata section in conf file found nor -r flag specified.\n")
+            log.critical(parser.print_help())
             exit(1)
             
     # derive data from cli or config file
     global_info = _read_global_info(cfg)
 
     inpath = args.indir
+    
+    if not os.path.isdir(inpath):
+        log.critical("Specified input directory does not exist.\n")
+        log.critical(parser.print_help())
+        exit(1)
+    
     outname = args.outname #'lpjguess_spatial_200_mdim.nc'
     use_month_dim = args.use_month_dim
 
     data_files = [x[0] for x in _read_data_info(cfg)]
 
-    print 'TODO: We need to produce proper time attributes'
+    log.debug("TODO: We need to produce proper time attributes")
 
     # output netcdf file
     ds = xr.Dataset()
@@ -454,7 +460,7 @@ def main():
         if type(file) == tuple:
             file, named_vars = file
 
-        print 'Processing file %s ...' % file
+        log.debug("Processing file %s ..." % file)
         
         # create two extra sets for north / south differences
         # if we have caused by exposition
@@ -464,10 +470,10 @@ def main():
 
         # TODO: split into seperate netCDF files
         if is_subpixel_file(file) and args.north_south:
-            print '  Calculating south, north and full landform average.'
+            log.debug("  Calculating south, north and full landform average.")
             sset_list = ['north', 'south', '']
         else:
-            print '  Calculating full landform average.'
+            log.debug("  Calculating full landform average.")
             sset_list = ['']
 
         for sset in sset_list:
@@ -505,7 +511,6 @@ def main():
     # order variables (coords first, then by name)
     d_vars = [x for x in sorted([x for x in ds.data_vars]) if x not in c_vars]
 
-    print c_vars
-    print d_vars
-
     ds[c_vars + d_vars].to_netcdf(outname, format='NETCDF4_CLASSIC', unlimited_dims='time')
+
+    log.debug("Done.")
