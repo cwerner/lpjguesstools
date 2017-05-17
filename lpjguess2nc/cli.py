@@ -14,8 +14,6 @@ import pkg_resources
 
 version = pkg_resources.require("lpjguess2nc")[0].version
 
-#version = "0.0.1"
-
 log = logging.getLogger(__name__)
 
 
@@ -72,6 +70,8 @@ class MultiArgsAction(argparse.Action):
         s = values.split(',')
         if len(s) == self._nsegs:
             setattr(namespace, self.dest, tuple(s))
+        elif len(s) == 1:
+            setattr(namespace, self.dest, tuple([s[0], None]))
         else:
             log.critical("Syntax error in %s" % option_string)
             exit(1)
@@ -108,37 +108,42 @@ def cli():
                                      epilog=EPILOG,
                                      formatter_class=CustomFormatter)
 
-    parser.add_argument('indir', help="location of source lpjguess txt files")
-    parser.add_argument('outdir', help="destination of created netCDF files")
+    parser.add_argument('indir', help="location of lpjguess txt or txt.gz files")
+    parser.add_argument('outname', help="output netCDF file")
+
+    # TODO: fully implement the avg. functionality
+    parser.add_argument("-a",
+                    dest="avg",
+                    action='store_true',
+                    default=False,
+                    help="average output years (see -y)")
 
     parser.add_argument("-c",
                     dest="config",
                     metavar='MYCONF',
-                    help="use MYCONF file as config")
+                    help="use MYCONF file as config (disabled)")
 
+    # TODO: not yet implemented
     parser.add_argument("-l",
-                    dest="limiter",
-                    metavar='PATTERN',
-                    help="limit files by PATTERN")
+                    dest="last_nyears",
+                    default=-1,
+                    type=int,
+                    metavar='NYEARS',
+                    help="number of years to use (or specify range with -y)")
 
-    parser.add_argument("-o",
-                    dest="outfile",
-                    default="outfile.nc",
-                    help="name of the output netCDF file")
+    parser.add_argument("-m",
+                    dest="use_month_dim",
+                    default=False,
+                    action='store_true',
+                    help="create extra month dimension <time, month, lat, lon>")
 
-    parser.add_argument(
-                    "-r",
+    # TODO: implemented, but needs more flexibility (allow any netCDF file etc.)
+    parser.add_argument("-r",
                     dest="refinfo",
                     action=MultiArgsAction,
                     const=2,
                     metavar="FILE,VAR",
-                    help="refdata from netCDF file")
-
-    #parser.add_argument("-s",
-    #                dest="split",
-    #                action='store_true',
-    #                default=False,
-    #                help="split output to yearly netCDF files")
+                    help="refdata from (landforms) netCDF file")
 
     parser.add_argument("-S",
                     dest="storeconfig",
@@ -154,9 +159,16 @@ def cli():
 
     parser.add_argument("-y",
                     dest="years",
-                    default=range(1990,2014),
+                    default=range(1950,1989),
                     action=RangeAction,
                     help="range of years to consider")
+
+    # extra subpixel/ landform switches
+    parser.add_argument("--ns",
+                    dest="north_south",
+                    default=False,
+                    action='store_true',
+                    help="create N, S aspect data for landform variables")
 
     print GREETING
 
@@ -170,4 +182,8 @@ def cli():
         log.critical("Option -S requires that you pass a file with -c.")
         exit(1)
 
-    return args
+    if args.years != range(1950,1989) and args.last_nyears != -1:
+        log.critical("Use either option -y or Option -l.")
+        exit(1)
+
+    return (parser, args)

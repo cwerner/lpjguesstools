@@ -25,20 +25,20 @@ def _copy_default_config():
     #TODO somewhat redundand, merge with set_config code
 
     fname = resource_filename(
-        Requirement.parse("ldndc2nc"), "ldndc2nc/data/ldndc2nc.conf")
+        Requirement.parse("lpjguess2nc"), "lpjguess2nc/data/lpjguess2nc.conf")
     shutil.copyfile(fname, os.path.join(
-        os.path.expanduser("~"), "ldndc2nc.conf"))
+        os.path.expanduser("~"), "lpjguess2nc.conf"))
 
 
 def _find_config():
     """ look for cfgFile in the default locations """
     cfgFile = None
-    locations = [os.curdir, os.path.expanduser("~"), "/etc/ldndc2nc",
-                 os.environ.get("LDNDC2NC_CONF")]
+    locations = [os.curdir, os.path.expanduser("~"), "/etc/lpjguess2nc",
+                 os.environ.get("LPJGUESSC2NC_CONF")]
     locations = [x for x in locations if x is not None]
 
     for loc in locations:
-        f = os.path.join(loc, "ldndc2nc.conf")
+        f = os.path.join(loc, "lpjguess2nc.conf")
         if os.path.isfile(f):
             cfgFile = f
             break
@@ -52,20 +52,30 @@ def _parse_config(cfgFile):
     with open(cfgFile, 'r') as ymlfile:
         cfg = yaml.load(ymlfile)
 
-    for k, vs in cfg['variables'].items():
+    def is_multipart_item(x):
+        return ';' in x
+
+    def is_assigned_item(x):
+        return '=' in x
+
+    for ix, v in enumerate(cfg['data']):
         vs_new = []
-        for v in vs:
+        if is_multipart_item(v):
+            xs = v.split(';')
+            d = {}
+            for x in xs[1:]:
+                if is_assigned_item(x):
+                    _k, _v = x.split('=')
+                    d[_k] = _v
+                else:
+                    d[x] = x
+            # return tuple file: variables, variables(renamed)
+            vs_new.append((xs[0], d))
+        else:
+            # return just a list of items
+            vs_new.append(v)
 
-            def is_multipart_item(x):
-                return ';' in x
-
-            if is_multipart_item(v):
-                x = v.split(';')
-                vs_new.append((x[0], x[1:]))
-            else:
-                vs_new.append(v)
-
-            cfg['variables'][k] = vs_new
+        cfg['data'][ix] = vs_new
 
     return cfg
 
@@ -74,7 +84,7 @@ def parse_config(cfg, section=None):
     """ parse config data structure, return data of required section """
 
     def is_valid_section(s):
-        valid_sections = ['info', 'project', 'variables', 'refdata']
+        valid_sections = ['info', 'project', 'data', 'refdata', 'insfile_keywords']
         return s in valid_sections
 
     cfg_data = None
@@ -106,12 +116,12 @@ def get_config(cfgFile=None):
             exit(1)
     else:
         cfgFile = _find_config()
-
         if not cfgfile_exists(cfgFile):
             log.info("Copying config file")
             _copy_default_config()
             cfgFile = _find_config()
-
+    
+    print 'Using conf file:', cfgFile
     cfg = _parse_config(cfgFile)
 
     return cfg
@@ -119,7 +129,7 @@ def get_config(cfgFile=None):
 
 def set_config(cfg):
     """ write cfg file to user dir """
-    fname = os.path.join(os.path.expanduser("~"), 'ldndc2nc.conf')
+    fname = os.path.join(os.path.expanduser("~"), 'lpjguess2nc.conf')
     with open(fname, 'w') as f:
         f.write(yaml.dump(cfg, default_flow_style=False))
 
@@ -129,11 +139,7 @@ class RefDataBuilder(param.Parameterized):
     latmin = param.Number(None, bounds=(-90, 90), doc="min latitude")
     lonmax = param.Number(None, bounds=(-180, 180), doc="max longitude")
     latmax = param.Number(None, bounds=(-90, 90), doc="max latitude")
-    local = param.Boolean(False, doc="number ids for regional subset")
-    formula = param.String(default='continuous')
     res = param.Number(None, bounds=(0, 5), doc="cell resolution in degrees")
-    i_shift = 0
-    j_shift = 0
 
     def __init__(self, cfg):
         _cfg = parse_config(cfg, section='refdata')
@@ -149,55 +155,12 @@ class RefDataBuilder(param.Parameterized):
             log.critical("No <res> statement in refdata")
             exit(1)
 
-        try:
-            self.local = _cfg['local']
-        except Exception as e:
-            log.debug("No <local> statement in refdata: using 'global'")
-
-        try:
-            formula = _cfg['formula']
-            formula = self._check_formula(formula)
-            self.formula = formula
-        except:
-            log.debug("No <formula> statement in refdata: using 'continuous'")
-
         # we work with cell centers
         cell_half = self.res * 0.5
         self.lons = np.arange(self.lonmin + cell_half, self.lonmax, self.res)
         self.lats = np.arange(self.latmin + cell_half, self.latmax, self.res)
         self.globlons = np.arange(-180 + cell_half, 180, self.res)
         self.globlats = np.arange(-90 + cell_half, 90, self.res)
-
-        if not self.local:
-            # compute shift of local bbox in respect to global domain
-            m_lon = self._find_nearest(self.globlons, self.lons[0])
-            m_lat = self._find_nearest(self.globlats, self.lats[::-1][0])
-            self.i_shift = np.where(self.globlons == m_lon)[0]
-            self.j_shift = np.where(self.globlats[::-1] == m_lat)[0]
-
-    def _check_formula(formula_str):
-        """ check norefdata formula given in conf file """
-        valid_chars = "xyij0123456789+*^"
-        safe_method = []
-        formula_str = string.lower(string.replace(formula_str, '^', '**'))
-        for c in formula_str:
-            if c in valid_chars:
-                formula_str_validated.append(c)
-        return ''.join(formula_str_validated)
-
-    def _compute_formula_cid(self, j, i):
-        """ calculate cellid based on formula """
-        i += self.i_shift
-        j += self.j_shift
-        return eval(self.rd.formula, {'__builtins__': None}, {})
-
-    def _compute_continuous_cid(self, j, i):
-        """ calculate continuous cellid """
-        if self.local:
-            i_len = len(self.lons)
-        else:
-            i_len = len(self.globlons)
-        return (j + self.j_shift) * i_len + (i + self.i_shift)
 
     def _find_nearest(self, array, value):
         """ locate closest value match """
