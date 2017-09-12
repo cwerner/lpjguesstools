@@ -23,11 +23,6 @@ email: christian.werner@senkenberg.de
 2017/02/07
 """
 
-# lgt_srtm2landforms.py
-# (formerly known as custom_tpi.py)
-#
-#
-
 from collections import Counter, OrderedDict
 import copy
 import datetime
@@ -37,15 +32,187 @@ import glob
 import math
 import numpy as np
 import os
+from osgeo import osr, gdal, gdalconst
 import pandas as pd
+import rasterio as rio
 from scipy.ndimage.filters import generic_filter as gf
 import string
 import xarray as xr
 
 
+def assert_gdal_dataset(d, fname='object'):
+    """check if we have a valid gdal.dataset instance"""
+    if not isinstance(d, gdal.Dataset):
+        print("ERROR: %s not of type 'gdal.Dataset'" % fname)
+        sys.exit(-1)
+
+def assert_ogr_datasource(d, fname='object'):
+    """check if we have a valid ogr.datasource instance"""
+    if not isinstance(d, ogr.DataSource):
+        print("ERROR: %s not of type 'ogr.DataSource'" % fname)
+        sys.exit(-1)
+
+
+def project2UTM(src, GDALResampleAlg, verbose=False, force=False):
+    """Reproject latlon to UTM"""
+    
+    assert_gdal_dataset(src, fname='project2UTM.src')
+
+    ## get the spatial reference
+    src_wkt = src.GetProjectionRef()
+    src_proj = osr.SpatialReference()
+    src_proj.ImportFromWkt(src_wkt)
+
+    ## check if unit is already 'metre'
+    if src_proj.GetAttrValue('UNIT') == 'metre' and not force:
+        print("Unit is already 'metre', returning unmodified!")
+        return(src)
+
+    ## create the UTM information
+    src_gtrans = src.GetGeoTransform()
+    src_ix = src.RasterXSize
+    src_iy = src.RasterYSize
+    src_cx = src_gtrans[0] + src_ix * src_gtrans[1] / 2.0
+    src_cy = src_gtrans[3] + src_iy * src_gtrans[5] / 2.0
+    ## TODO: check if longitude is larger than 180
+    utm_zone = math.floor((src_cx + 186) / 6)
+    dst_epsg = int(32000 + (6 + (1 - np.sign(src_cy)) / 2) * 100 + utm_zone)
+    if verbose:
+        print("Source projection:   {}".format(src_proj))
+
+    ## Create the destination GDAL object
+    dst_proj = osr.SpatialReference()
+    dst_proj.ImportFromEPSG(dst_epsg)
+    if verbose:
+        print("Destination EPSG code:  %i" % dst_epsg)
+        print("Destination Projection: {}".format(dst_proj))
+    ## transform
+    dst = gdal.AutoCreateWarpedVRT(src, src_proj.ExportToWkt(), dst_proj.ExportToWkt(), GDALResampleAlg)
+    return(dst)
+
+
+
+def rasterizeMask(mask, dst):
+    """rasterize mask shapefile (water bodies)"""
+
+    assert_gdal_dataset(dst, fname='rasterizeMask.dst')
+    assert_ogr_datasource(mask, fname='rasterizeMask.mask')
+
+    lmask = mask.GetLayer()
+
+    mem_drv = gdal.GetDriverByName('MEM')
+    dest_ds = mem_drv.Create('', dst.RasterXSize, dst.RasterYSize, 1, gdal.GDT_Float64)
+    dest_ds.SetGeoTransform(dst.GetGeoTransform())
+    dest_ds.SetProjection(dst.GetProjection())
+
+    ## Rasterize
+    ## TODO: Solve the Projection warning here
+    gdal.RasterizeLayer(dest_ds, [1], lmask)
+    return(dest_ds)
+
+
+def processDEM(src, verbose=False, force=False, mask=None, GDALResampleAlg=gdal.GRA_Bilinear):
+    """Calculate slope, aspect and tpi from source DEM"""
+    
+    ## test if 'src' is a valid GDAL
+    if not isinstance(src, gdal.Dataset):
+        print("ERROR (project2UTM): 'src' not of type 'gdal.Dataset'!")
+        sys.exit(-999)
+
+    ## check if a mask layer is desired
+    if mask == None:
+        nLayer = 3
+    else:
+        nLayer = 4
+
+    ## reproject to UTM
+    utm = project2UTM(src, GDALResampleAlg, verbose=verbose, force=force)
+
+    ## Create slope and aspect in UTM coordinates
+    ## TODO: maybe make computeEdges customizable
+    utm_slp = gdal.DEMProcessing('', utm, 'slope', format='MEM', computeEdges=True)
+    utm_asp = gdal.DEMProcessing('', utm, 'aspect', format='MEM', computeEdges=True)
+
+    ## Reproject slope/aspect back to input projection
+    mem_drv = gdal.GetDriverByName('MEM')
+
+    dst_slp = mem_drv.Create('', src.RasterXSize,  src.RasterYSize, 1, gdal.GDT_Float64)
+    dst_slp.SetGeoTransform(src.GetGeoTransform())
+    dst_slp.SetProjection(src.GetProjection())  
+    gdal.Warp(dst_slp, utm_slp)
+
+    dst_asp = mem_drv.Create('', src.RasterXSize,  src.RasterYSize, 1, gdal.GDT_Float64)
+    dst_asp.SetGeoTransform(src.GetGeoTransform())
+    dst_asp.SetProjection(src.GetProjection())  
+    gdal.Warp(dst_asp, utm_asp)
+
+    ## put input/slope/aspect into one 3-Band GDAL object
+    dst = mem_drv.Create('', src.RasterXSize,  src.RasterYSize, 3, gdal.GDT_Float64)
+    dst.SetGeoTransform(src.GetGeoTransform())
+    dst.SetProjection(src.GetProjection())
+    
+    dst.GetRasterBand(1).WriteArray(src.GetRasterBand(1).ReadAsArray())
+    dst.GetRasterBand(2).WriteArray(dst_slp.GetRasterBand(1).ReadAsArray())
+    dst.GetRasterBand(3).WriteArray(dst_asp.GetRasterBand(1).ReadAsArray())
+
+    if not mask == None:
+        rmask = rasterizeMask(mask, src)
+        dst.GetRasterBand(4).WriteArray(rmask.GetRasterBand(1).ReadAsArray())
+
+    return(dst)
+
+
+
+    
+def compute_tpi(geofile, scale=300):
+    """compute topograition index based on DEM""" 
+    
+    # scale in meters: tested 300, 2000 based on Weiss Poster
+
+    return tpi
+
+
+
 def call_custom_tpi():
 
     #tiles = glob.glob('SRTM1/*_bil.zip')
+    
+    # Rules:
+    # - slope and aspect calc should be conducted on water-clipped grid
+    # - tpi calculations should be carried out on original data (since they)
+    #   involve a potentially larger kernel (otherwise we have NODATA increase)
+    #
+    # TODO:
+    # - include a new step to clip srtm1_filled tifs with their shp files
+    #   this was formerly done offline using GRASS 
+    #
+    # -----8< --------------------------------------------------
+    # !/bin/bash
+    # tifdir=data/srtm1_filled
+    # shpdir=data/srtm1_water
+    # outdir=data/srtm1_masked
+    # 
+    # GISDBASE=/data/Grass
+    # 
+    # LOCATION_NAME=Chile
+    # MAPSET=PERMANENT
+    # 
+    # for file in $tifdir/*.tif; do
+    #   file=$(basename $file)
+    #   lat=$(echo $file | grep -Po '[ns][0-9]{2}')
+    #   lon=$(echo $file | grep -Po '[ew][0-9]{3}')
+    #   echo $lon $lat
+    # 
+    #   grass -c ${tifdir}/${lat}_${lon}_1arc_v3.tif -e $GISDBASE/$LOCATION_NAME
+    #   grass ${GISDBASE}/${LOCATION_NAME}/${MAPSET}/ --exec r.import --quiet input=${tifdir}/${lat}_${lon}_1arc_v3.tif output=dem
+    #   grass ${GISDBASE}/${LOCATION_NAME}/${MAPSET}/ --exec v.import --quiet -o input=${shpdir}/${lon}${lat}s.shp output=water
+    #   grass ${GISDBASE}/${LOCATION_NAME}/${MAPSET}/ --exec r.mask --quiet -i vector=water
+    #   grass ${GISDBASE}/${LOCATION_NAME}/${MAPSET}/ --exec r.out.gdal -mc --quiet --overwrite input=dem output=${outdir}/${lat}_${lon}_1arc_v3.tif type=Int16 nodata=-32768
+    #   rm -r $GISDBASE/$LOCATION_NAME
+    # done
+    # -----8< --------------------------------------------------
+    
+    # 
     tiles = glob.glob('srtm1_filled/*.tif')
 
     for tile in sorted( tiles ):
@@ -56,48 +223,28 @@ def call_custom_tpi():
         #bfilename = zfilename[:-8] + '.bil'
 
         #src = gdal.Open('/vsizip/' + os.path.join(tile, bfilename), gdalconst.GA_ReadOnly)
+
         src = gdal.Open(tile, gdalconst.GA_ReadOnly)
+        rawdata = processDEM(src)
 
-        drv = gdal.GetDriverByName('GTiff')
-
-
-        bfshort = tile[:-4]
-
-        # dump original DEM
-        #dstorig = drv.CreateCopy(bfshort + '.tif', src, 0)
-
-
-        dst  = drv.CreateCopy(bfshort + "_tpi300sm.tif", src, 0)
-        dstc = drv.CreateCopy(bfshort + "_tpi300sm_classed.tif", src, 0)
-
-        DEM    = src.GetRasterBand(1).ReadAsArray()
+        DEM       = src.GetRasterBand(1).ReadAsArray()
+        SLOPE     = src.GetRasterBand(2).ReadAsArray()
+        ASPECT    = src.GetRasterBand(3).ReadAsArray()
+        WATERMASK = src.GetRasterBand(4).ReadAsArray()
+        
         NODATA = src.GetRasterBand(1).GetNoDataValue()
         if NODATA is not None:
-            DEM = np.ma.masked_equal(DEM, NODATA)
+            DEM    = np.ma.masked_equal(DEM, NODATA)
+            SLOPE  = np.ma.masked_equal(SLOPE, NODATA)
+            ASPECT = np.ma.masked_equal(ASPECT, NODATA)
+            DEMM   = np.ma.masked_where(WATERMASK == 1, DEM) 
 
-        dst2 = drv.CreateCopy(bfshort + "_tpi2000sm.tif", src, 0)
-        dst2c = drv.CreateCopy(bfshort + "_tpi2000sm_classed.tif", src, 0)
-
-        dst3 = drv.CreateCopy(bfshort + "_lf300x2000.tif", src, 0)
-
-        # do the same with slope
-        # calculate slope
-        cmd = 'gdaldem slope -s 111122 %s %s' % (bfshort + '.tif', bfshort + '_slope.tif',)
-        os.system(cmd)
-
-        # calculate slope
-        cmd = 'gdaldem aspect %s %s' % (bfshort + '.tif', bfshort + '_aspect.tif')
-        os.system(cmd)
-
-        src = gdal.Open(bfshort + '_slope.tif', gdalconst.GA_ReadOnly)
-        SLOPE = src.GetRasterBand(1).ReadAsArray()
-        NODATA = src.GetRasterBand(1).GetNoDataValue()
-        if NODATA is not None:
-            SLOPE = np.ma.masked_equal(SLOPE, NODATA)
 
         # tpi 300 first / small scale
         print '   - tpi300 calculation'
         # kernel
+
+        # radii are for for 30m DEM
 
         # smoothing circle (5x5 window)
         radius = 2
@@ -130,25 +277,13 @@ def call_custom_tpi():
 
 
         # stats
-        #print '   tpi300 stats'
-        #print 'min', np.min(tpi300)
-        #print 'max', np.max(tpi300)
-
         tpi300_sd   = np.std( tpi300 )
         tpi300_mean = np.mean( tpi300 )
-
-        #print 'mean', np.mean(tpi300)
-        #print 'std', np.std(tpi300)
-
 
         pz05_val = np.percentile(tpi300, 69.15)
         pz10_val = np.percentile(tpi300, 84.13)
         mz05_val = np.percentile(tpi300, 100 - 69.15)
         mz10_val = np.percentile(tpi300, 100 - 84.13)
-
-        dst.GetRasterBand(1).WriteArray(tpi300)
-        dst.FlushCache()  # Write to disk.
-
 
         # reclassification
         tpi300_classes = np.zeros( tpi300.shape )
@@ -158,9 +293,6 @@ def call_custom_tpi():
         tpi300_classes[np.where( (tpi300 >= mz05_val) & (tpi300 <= pz05_val) & (SLOPE <= 6)) ] = 4 # flats slope
         tpi300_classes[np.where( (tpi300 >= mz10_val) & (tpi300 <  mz05_val)) ]                = 5 # lower slopes
         tpi300_classes[np.where( tpi300 < mz10_val)]                                           = 6 # valleys
-
-        dstc.GetRasterBand(1).WriteArray(tpi300_classes)
-        dstc.FlushCache()  # Write to disk.
 
 
         print '   - tpi2000 calculation'
@@ -189,19 +321,11 @@ def call_custom_tpi():
         tpi2000_sd   = np.std( tpi2000 )
         tpi2000_mean = np.mean( tpi2000 )
 
-        dst2.GetRasterBand(1).WriteArray(tpi2000)
-        dst2.FlushCache()  # Write to disk.
-
-
-
 
         pz05_val = np.percentile(tpi2000, 69.15)
         pz10_val = np.percentile(tpi2000, 84.13)
         mz05_val = np.percentile(tpi2000, 100 - 69.15)
         mz10_val = np.percentile(tpi2000, 100 - 84.13)
-
-        dst2.GetRasterBand(1).WriteArray(tpi2000)
-        dst2.FlushCache()  # Write to disk.
 
 
         # reclassification
@@ -212,9 +336,6 @@ def call_custom_tpi():
         tpi2000_classes[np.where( (tpi2000 >= mz05_val) & (tpi2000 <= pz05_val) & (SLOPE <= 5)) ] = 4 # flats slope
         tpi2000_classes[np.where( (tpi2000 >= mz10_val) & (tpi2000 <  mz05_val)) ]                = 5 # lower slopes
         tpi2000_classes[np.where( tpi2000 < mz10_val)]                                            = 6 # valleys
-
-        dst2c.GetRasterBand(1).WriteArray(tpi2000_classes)
-        dst2c.FlushCache()  # Write to disk.
 
 
         # join classsifications
@@ -237,10 +358,10 @@ def call_custom_tpi():
         lf3x20[np.where( (tp3sd >= 100)  & (tp20sd >= 100))]                                                 = 10
         lf3x20[np.where( (tp3sd >= 100)  & (tp20sd <= -100))]                                                = 8
 
-        dst3.GetRasterBand(1).WriteArray(lf3x20)
-        dst3.FlushCache()  # Write to disk.
-
-
+        # return arrays
+        # TODO: convert to an xarray dataset
+        
+        return (DEM, SLOPE, ASPECT, tpi300, tpi300_classes, tpi2000, tpi2000_classes, lf3x20)
 
 
 # ----------------- PART2 -------------------------------
@@ -827,7 +948,8 @@ def create_gridlist(ds):
 def main():
     """Main Script."""    
     
-    #TODO: cleanup
+    # TODO: cleanup
+    # call the old scripts (that have been reworked)
     call_customtpi()
     call_computeLandformStats5()
     
