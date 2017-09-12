@@ -172,6 +172,20 @@ def compute_tpi(geofile, scale=300):
     return tpi
 
 
+def create_kernel(radius=2, invert=False):
+    """define a kernel or smoothing or tpi calculation"""
+    
+    if invert:
+        value = 0
+        k = np.ones((2*radius+1, 2*radius+1))                
+    else:
+        value = 1
+        k = np.zeros((2*radius+1, 2*radius+1))
+    
+    y,x = np.ogrid[-radius:radius+1, -radius:radius+1]
+    mask = x**2 + y**2 <= radius**2
+    k[mask] = value
+    return k
 
 def call_custom_tpi():
 
@@ -181,38 +195,7 @@ def call_custom_tpi():
     # - slope and aspect calc should be conducted on water-clipped grid
     # - tpi calculations should be carried out on original data (since they)
     #   involve a potentially larger kernel (otherwise we have NODATA increase)
-    #
-    # TODO:
-    # - include a new step to clip srtm1_filled tifs with their shp files
-    #   this was formerly done offline using GRASS 
-    #
-    # -----8< --------------------------------------------------
-    # !/bin/bash
-    # tifdir=data/srtm1_filled
-    # shpdir=data/srtm1_water
-    # outdir=data/srtm1_masked
-    # 
-    # GISDBASE=/data/Grass
-    # 
-    # LOCATION_NAME=Chile
-    # MAPSET=PERMANENT
-    # 
-    # for file in $tifdir/*.tif; do
-    #   file=$(basename $file)
-    #   lat=$(echo $file | grep -Po '[ns][0-9]{2}')
-    #   lon=$(echo $file | grep -Po '[ew][0-9]{3}')
-    #   echo $lon $lat
-    # 
-    #   grass -c ${tifdir}/${lat}_${lon}_1arc_v3.tif -e $GISDBASE/$LOCATION_NAME
-    #   grass ${GISDBASE}/${LOCATION_NAME}/${MAPSET}/ --exec r.import --quiet input=${tifdir}/${lat}_${lon}_1arc_v3.tif output=dem
-    #   grass ${GISDBASE}/${LOCATION_NAME}/${MAPSET}/ --exec v.import --quiet -o input=${shpdir}/${lon}${lat}s.shp output=water
-    #   grass ${GISDBASE}/${LOCATION_NAME}/${MAPSET}/ --exec r.mask --quiet -i vector=water
-    #   grass ${GISDBASE}/${LOCATION_NAME}/${MAPSET}/ --exec r.out.gdal -mc --quiet --overwrite input=dem output=${outdir}/${lat}_${lon}_1arc_v3.tif type=Int16 nodata=-32768
-    #   rm -r $GISDBASE/$LOCATION_NAME
-    # done
-    # -----8< --------------------------------------------------
-    
-    # 
+
     tiles = glob.glob('srtm1_filled/*.tif')
 
     for tile in sorted( tiles ):
@@ -240,52 +223,33 @@ def call_custom_tpi():
             DEMM   = np.ma.masked_where(WATERMASK == 1, DEM) 
 
 
-        # tpi 300 first / small scale
+        # tpi 300 first / small scale (30m DEM)
+        # TODO: compute radius based on cell size
+
         print '   - tpi300 calculation'
-        # kernel
 
-        # radii are for for 30m DEM
+        # smoothing kernel (5x5)
+        k_smooth = create_kernel(radius=2)
 
-        # smoothing circle (5x5 window)
-        radius = 2
-        k1 = np.zeros((2*radius+1, 2*radius+1))
-        y,x = np.ogrid[-radius:radius+1, -radius:radius+1]
-        mask = x**2 + y**2 <= radius**2
-        k1[mask] = 1
+        # inner and outer tpi300 kernels
+        k_outer = create_kernel(radius=10)
+        k_inner = create_kernel(radius=5, invert=True)
 
-        # apply kernels to DATA
-        radius = 10
-        kernel = np.zeros((2*radius+1, 2*radius+1))
-        y,x = np.ogrid[-radius:radius+1, -radius:radius+1]
-        mask = x**2 + y**2 <= radius**2
-        kernel[mask] = 1
+        x = y = (k_outer.shape[0] - k_inner.shape[0]) / 2
+        k_outer[x:x+k_inner.shape[0], y:y+k_inner.shape[1]] = k_inner
 
-        # cut out inner area again
-        sradius = 5
-        skernel = np.ones((2*sradius+1, 2*sradius+1))
-        y,x = np.ogrid[-sradius:sradius+1, -sradius:sradius+1]
-        smask = x**2 + y**2 <= sradius**2
-        skernel[smask] = 0
+        # compute tpi300
+        tpi300 = DEM - gf(DEM, np.mean, footprint=k_outer, mode="reflect") + 0.5
+        tpi300 = gf(tpi300, np.mean, footprint=k_smooth, mode="reflect").astype(int)
 
-
-
-        x = y = (kernel.shape[0] - skernel.shape[0]) / 2
-        kernel[x:x+skernel.shape[0], y:y+skernel.shape[1]] = skernel
-
-        tpi300 = DEM - gf(DEM, np.mean, footprint=kernel, mode="reflect") + 0.5
-        tpi300 = gf(tpi300, np.mean, footprint=k1, mode="reflect").astype(int)
-
-
-        # stats
+        # classify tpi300
         tpi300_sd   = np.std( tpi300 )
         tpi300_mean = np.mean( tpi300 )
-
         pz05_val = np.percentile(tpi300, 69.15)
         pz10_val = np.percentile(tpi300, 84.13)
         mz05_val = np.percentile(tpi300, 100 - 69.15)
         mz10_val = np.percentile(tpi300, 100 - 84.13)
 
-        # reclassification
         tpi300_classes = np.zeros( tpi300.shape )
         tpi300_classes[np.where( tpi300 > pz10_val)]                                           = 1 # ridge
         tpi300_classes[np.where( (tpi300 > pz05_val)  & (tpi300 <= pz10_val)) ]                = 2 # upper slope
@@ -297,38 +261,25 @@ def call_custom_tpi():
 
         print '   - tpi2000 calculation'
 
-        # apply kernels to DATA
-        radius = 67
+        # inner and outer tpi300 kernels
+        k_outer = create_kernel(radius=67)
+        k_inner = create_kernel(radius=62, invert=True)
 
-        kernel = np.zeros((2*radius+1, 2*radius+1))
-        y,x = np.ogrid[-radius:radius+1, -radius:radius+1]
-        mask = x**2 + y**2 <= radius**2
-        kernel[mask] = 1
+        x = y = (k_outer.shape[0] - k_inner.shape[0]) / 2
+        k_outer[x:x+k_inner.shape[0], y:y+k_inner.shape[1]] = k_inner
 
-        # cut out inner area again
-        sradius = 62
-        skernel = np.ones((2*sradius+1, 2*sradius+1))
-        y,x = np.ogrid[-sradius:sradius+1, -sradius:sradius+1]
-        smask = x**2 + y**2 <= sradius**2
-        skernel[smask] = 0
+        # compute tpi2000
+        tpi2000 = DEM - gf(DEM, np.mean, footprint=k_outer, mode="reflect") + 0.5
+        tpi2000 = gf(tpi2000, np.mean, footprint=k_smooth, mode="reflect").astype(int)
 
-        x = y = (kernel.shape[0] - skernel.shape[0]) / 2
-        kernel[x:x+skernel.shape[0], y:y+skernel.shape[1]] = skernel
-
-        tpi2000 = DEM - gf(DEM, np.mean, footprint=kernel, mode="reflect") + 0.5
-        tpi2000 = gf(tpi2000, np.mean, footprint=k1, mode="reflect").astype(int)
-
+        # classify tpi300
         tpi2000_sd   = np.std( tpi2000 )
         tpi2000_mean = np.mean( tpi2000 )
-
-
         pz05_val = np.percentile(tpi2000, 69.15)
         pz10_val = np.percentile(tpi2000, 84.13)
         mz05_val = np.percentile(tpi2000, 100 - 69.15)
         mz10_val = np.percentile(tpi2000, 100 - 84.13)
 
-
-        # reclassification
         tpi2000_classes = np.zeros( tpi2000.shape )
         tpi2000_classes[np.where( tpi2000 > pz10_val)]                                            = 1 # ridge
         tpi2000_classes[np.where( (tpi2000 > pz05_val)  & (tpi2000 <= pz10_val)) ]                = 2 # upper slope
