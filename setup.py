@@ -9,7 +9,7 @@ from os import path
 import re
 
 version = re.search('^__version__\s*=\s*"(.*)"',
-                    open('lpjguess2nc/lpjguess2nc.py').read(), re.M).group(1)
+                    open('lpjguesstools/lpt_convert.py').read(), re.M).group(1)
 
 here = path.abspath(path.dirname(__file__))
 
@@ -63,15 +63,15 @@ class PyPack(SDistCommand):
         SDistCommand.run(self)
         
 
-setup(name='lpjguess2nc',
+setup(name='lpjguesstools',
       version=version,
-      description='This package converts LPJ-GUESS 4.0 input and output',
+      description='This package contains pre- and postprocessing tools for LPJ-GUESS 4.0',
       long_description=long_descr,
-      url='https://gitlab.com/cw_code/lpjguess2nc',
+      url='https://gitlab.com/cw_code/lpjguesstools',
       author='Christian Werner',
       author_email='christian.werner@senckenberg.de',
       license='ND',
-      download_url='https://gitlab.com/cw_code/lpjguess2nc/tarball/' + version,
+      download_url='https://gitlab.com/cw_code/lpjguesstools/tarball/' + version,
       classifiers=[
           'Development Status :: 3 - Alpha',
           'Intended Audience :: LPJ-GUESS scientists',
@@ -81,11 +81,11 @@ setup(name='lpjguess2nc',
       packages=find_packages(exclude=['docs', 'tests']),
       install_requires=install_requires,
       extras_require={'test': ['pytest'], },
-      package_data={'lpjguess2nc': ['data/lpjguess2nc.conf']},
+      package_data={'lpjguesstools': ['data/lgt_convert.conf']},
       include_package_data=True,
       entry_points={'console_scripts': [
-          'lgt_convert=lpjguess2nc.lpjguess2nc:main',
-          'lgt_srtm2lf=lpjguess2nc.lgt_createinput:main']},
+          'lgt_convert=lpjguesstools.lgt_convert:main',
+          'lgt_createinput=lpjguesstools.lgt_createinput:main']},
       test_suite='lpjguess2nc.test.test_lpjguess2nc',
       cmdclass={'test': PyTest, 'sdist': PyPack},
       dependency_links=dependency_links)

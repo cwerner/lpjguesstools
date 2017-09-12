@@ -12,7 +12,7 @@ import logging
 import os
 import pkg_resources
 
-version = pkg_resources.require("lpjguess2nc")[0].version
+version = pkg_resources.require("lpjguesstools")[0].version
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ EPILOG = """
     LPJ-GUESS 4 txt output files
     """
 
-DESCR = "lpjguess2nc :: LPJ-GUESS output converter (v%s)\n" % version
+DESCR = "lpt_convert :: LPJ-GUESS output converter (v%s)\n" % version
 
 
 class VerbosityAction(argparse.Action):
@@ -96,7 +96,7 @@ class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
 def cli():
     """ command line interface """
 
-    DESCR = "lpjguess2nc :: LPJ-GUESS output converter (v%s)" % version
+    DESCR = "lpt_convert :: LPJ-GUESS output converter (v%s)" % version
 
     GREETING = '\n'.join(['-'*78, DESCR, '-'*78])
 
@@ -176,7 +176,7 @@ def cli():
 
 
     log.debug('-' * 50)
-    log.debug('lpjguess2nc called at: %s' % dt.datetime.now())
+    log.debug('lpt_convert called at: %s' % dt.datetime.now())
 
     if args.storeconfig and (args.config is None):
         log.critical("Option -S requires that you pass a file with -c.")
