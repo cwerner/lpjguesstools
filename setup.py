@@ -9,7 +9,7 @@ from os import path
 import re
 
 version = re.search('^__version__\s*=\s*"(.*)"',
-                    open('lpjguesstools/lpt_convert.py').read(), re.M).group(1)
+                    open('lpjguesstools/lgt_convert.py').read(), re.M).group(1)
 
 here = path.abspath(path.dirname(__file__))
 

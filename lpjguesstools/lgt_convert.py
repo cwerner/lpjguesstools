@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 #
-# _lpjguess2nc.py
-# ====================
+# lgt_convert.py
+# ==============
 #
 # Christian Werner
 # christian.werner@senckenberg.de
-"""lpjguess2nc.lpjguess2nc: provides entry point main()."""
+"""lpjguesstools.lgt_convert: provides entry point main()."""
 
 from collections import OrderedDict
 import logging
