@@ -26,8 +26,8 @@ email: christian.werner@senkenberg.de
 from collections import Counter, OrderedDict
 import copy
 import datetime
-import gdal
-import gdalconst
+#import gdal
+#import gdalconst
 import glob 
 import math
 import numpy as np
