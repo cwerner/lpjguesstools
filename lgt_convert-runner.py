@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Convenience wrapper for running lpjguess2nc directly from source tree."""
+"""Convenience wrapper for running lgt_convert directly from source tree."""
 
-from lpjguess2nc.lpjguess2nc import main
+from lpjguesstools.lgt_convert import main
 
 if __name__ == '__main__':
     main()

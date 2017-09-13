@@ -11,9 +11,9 @@ except ImportError:
 
 logging.getLogger(__name__).addHandler(NullHandler())
 
-# TODO make these flexible (ENV var and/ or lpjguess2nc.conf) 
+# TODO: create sublogger for different scripts
 logPath = '.'
-fileName = 'lpjguess2nc'
+fileName = 'lpjguesstools'
 
 class MultiLineFormatter(logging.Formatter):
     """ A custom multi-line logging formatter """

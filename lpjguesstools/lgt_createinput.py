@@ -35,9 +35,10 @@ import os
 from osgeo import osr, gdal, gdalconst
 import pandas as pd
 import rasterio as rio
-from scipy.ndimage.filters import generic_filter as gf
 import string
 import xarray as xr
+
+from _tpi import calculate_tpi
 
 
 def assert_gdal_dataset(d, fname='object'):
@@ -163,31 +164,7 @@ def processDEM(src, verbose=False, force=False, mask=None, GDALResampleAlg=gdal.
 
 
 
-    
-def compute_tpi(geofile, scale=300):
-    """compute topograition index based on DEM""" 
-    
-    # scale in meters: tested 300, 2000 based on Weiss Poster
-
-    return tpi
-
-
-def create_kernel(radius=2, invert=False):
-    """define a kernel or smoothing or tpi calculation"""
-    
-    if invert:
-        value = 0
-        k = np.ones((2*radius+1, 2*radius+1))                
-    else:
-        value = 1
-        k = np.zeros((2*radius+1, 2*radius+1))
-    
-    y,x = np.ogrid[-radius:radius+1, -radius:radius+1]
-    mask = x**2 + y**2 <= radius**2
-    k[mask] = value
-    return k
-
-def call_custom_tpi():
+def call_customtpi():
 
     #tiles = glob.glob('SRTM1/*_bil.zip')
     
@@ -202,11 +179,7 @@ def call_custom_tpi():
         print 'processing: ', tile, '(', datetime.datetime.now(), ')'
         #tile = "SRTM1/s17_w071_1arc_v3_bil.zip"
 
-        #zfilename = os.path.basename(tile)
-        #bfilename = zfilename[:-8] + '.bil'
-
         #src = gdal.Open('/vsizip/' + os.path.join(tile, bfilename), gdalconst.GA_ReadOnly)
-
         src = gdal.Open(tile, gdalconst.GA_ReadOnly)
         rawdata = processDEM(src)
 
@@ -223,96 +196,14 @@ def call_custom_tpi():
             DEMM   = np.ma.masked_where(WATERMASK == 1, DEM) 
 
 
-        # tpi 300 first / small scale (30m DEM)
-        # TODO: compute radius based on cell size
-
-        print '   - tpi300 calculation'
-
-        # smoothing kernel (5x5)
-        k_smooth = create_kernel(radius=2)
-
-        # inner and outer tpi300 kernels
-        k_outer = create_kernel(radius=10)
-        k_inner = create_kernel(radius=5, invert=True)
-
-        x = y = (k_outer.shape[0] - k_inner.shape[0]) / 2
-        k_outer[x:x+k_inner.shape[0], y:y+k_inner.shape[1]] = k_inner
-
-        # compute tpi300
-        tpi300 = DEM - gf(DEM, np.mean, footprint=k_outer, mode="reflect") + 0.5
-        tpi300 = gf(tpi300, np.mean, footprint=k_smooth, mode="reflect").astype(int)
-
-        # classify tpi300
-        tpi300_sd   = np.std( tpi300 )
-        tpi300_mean = np.mean( tpi300 )
-        pz05_val = np.percentile(tpi300, 69.15)
-        pz10_val = np.percentile(tpi300, 84.13)
-        mz05_val = np.percentile(tpi300, 100 - 69.15)
-        mz10_val = np.percentile(tpi300, 100 - 84.13)
-
-        tpi300_classes = np.zeros( tpi300.shape )
-        tpi300_classes[np.where( tpi300 > pz10_val)]                                           = 1 # ridge
-        tpi300_classes[np.where( (tpi300 > pz05_val)  & (tpi300 <= pz10_val)) ]                = 2 # upper slope
-        tpi300_classes[np.where( (tpi300 > mz05_val)  & (tpi300 < pz05_val) & (SLOPE > 6) ) ]  = 3 # middle slope
-        tpi300_classes[np.where( (tpi300 >= mz05_val) & (tpi300 <= pz05_val) & (SLOPE <= 6)) ] = 4 # flats slope
-        tpi300_classes[np.where( (tpi300 >= mz10_val) & (tpi300 <  mz05_val)) ]                = 5 # lower slopes
-        tpi300_classes[np.where( tpi300 < mz10_val)]                                           = 6 # valleys
-
-
-        print '   - tpi2000 calculation'
-
-        # inner and outer tpi300 kernels
-        k_outer = create_kernel(radius=67)
-        k_inner = create_kernel(radius=62, invert=True)
-
-        x = y = (k_outer.shape[0] - k_inner.shape[0]) / 2
-        k_outer[x:x+k_inner.shape[0], y:y+k_inner.shape[1]] = k_inner
-
-        # compute tpi2000
-        tpi2000 = DEM - gf(DEM, np.mean, footprint=k_outer, mode="reflect") + 0.5
-        tpi2000 = gf(tpi2000, np.mean, footprint=k_smooth, mode="reflect").astype(int)
-
-        # classify tpi300
-        tpi2000_sd   = np.std( tpi2000 )
-        tpi2000_mean = np.mean( tpi2000 )
-        pz05_val = np.percentile(tpi2000, 69.15)
-        pz10_val = np.percentile(tpi2000, 84.13)
-        mz05_val = np.percentile(tpi2000, 100 - 69.15)
-        mz10_val = np.percentile(tpi2000, 100 - 84.13)
-
-        tpi2000_classes = np.zeros( tpi2000.shape )
-        tpi2000_classes[np.where( tpi2000 > pz10_val)]                                            = 1 # ridge
-        tpi2000_classes[np.where( (tpi2000 > pz05_val)  & (tpi2000 <= pz10_val)) ]                = 2 # upper slope
-        tpi2000_classes[np.where( (tpi2000 > mz05_val)  & (tpi2000 < pz05_val) & (SLOPE > 5) ) ]  = 3 # middle slope
-        tpi2000_classes[np.where( (tpi2000 >= mz05_val) & (tpi2000 <= pz05_val) & (SLOPE <= 5)) ] = 4 # flats slope
-        tpi2000_classes[np.where( (tpi2000 >= mz10_val) & (tpi2000 <  mz05_val)) ]                = 5 # lower slopes
-        tpi2000_classes[np.where( tpi2000 < mz10_val)]                                            = 6 # valleys
-
-
-        # join classsifications
-        # -----------------------------------------------------------------
-
-        print '   - landform classification calculation'
-
-        tp3sd  = (((tpi300 - tpi300_mean)/tpi300_sd)*100 + 0.5).astype(int) 
-        tp20sd = (((tpi2000 - tpi2000_mean)/tpi2000_sd)*100 + 0.5).astype(int) 
-
-        lf3x20 = np.zeros( tpi2000.shape )
-        lf3x20[np.where( (tp3sd > -100)  & (tp3sd < 100) & (tp20sd > -100) & (tp20sd < 100) & (SLOPE <= 5))] = 5
-        lf3x20[np.where( (tp3sd > -100)  & (tp3sd < 100) & (tp20sd > -100) & (tp20sd < 100) & (SLOPE >  5))] = 6
-        lf3x20[np.where( (tp3sd > -100)  & (tp3sd < 100) & (tp20sd >= 100))]                                 = 7
-        lf3x20[np.where( (tp3sd > -100)  & (tp3sd < 100) & (tp20sd <= -100))]                                = 4
-        lf3x20[np.where( (tp3sd <= -100) & (tp20sd > -100) & (tp20sd < 100))]                                = 2
-        lf3x20[np.where( (tp3sd >= 100)  & (tp20sd > -100) & (tp20sd < 100))]                                = 9
-        lf3x20[np.where( (tp3sd <= -100) & (tp20sd >= 100))]                                                 = 3
-        lf3x20[np.where( (tp3sd <= -100) & (tp20sd <= -100))]                                                = 1
-        lf3x20[np.where( (tp3sd >= 100)  & (tp20sd >= 100))]                                                 = 10
-        lf3x20[np.where( (tp3sd >= 100)  & (tp20sd <= -100))]                                                = 8
-
-        # return arrays
-        # TODO: convert to an xarray dataset
+        # TODO: 
+        # - check if we need to mask before this step
+        # - convert to an xarray dataset(s) ?
         
-        return (DEM, SLOPE, ASPECT, tpi300, tpi300_classes, tpi2000, tpi2000_classes, lf3x20)
+        TPI300_CLASSES = calculate_tpi(DEM, SLOPE, 300)
+
+        return (DEM, SLOPE, ASPECT, TPI300_CLASSES)
+    
 
 
 # ----------------- PART2 -------------------------------
@@ -650,9 +541,9 @@ def call_computeLandformStats5():
                 f_lf.flush()
                 f_sl.flush()
 
-f_el.close()
-f_lf.close()
-f_sl.close()
+    f_el.close()
+    f_lf.close()
+    f_sl.close()
 
 
 
@@ -901,7 +792,10 @@ def main():
     
     # TODO: cleanup
     # call the old scripts (that have been reworked)
+    print "computing tpi"
     call_customtpi()
+    
+    print "computing landforms"
     call_computeLandformStats5()
     
     # source files
