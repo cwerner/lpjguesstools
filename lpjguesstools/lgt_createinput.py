@@ -109,22 +109,14 @@ def rasterizeMask(mask, dst):
     ## Rasterize
     ## TODO: Solve the Projection warning here
     gdal.RasterizeLayer(dest_ds, [1], lmask)
-    return(dest_ds)
+    return dest_ds.ReadAsArray(1)
 
 
-def processDEM(src, verbose=False, force=False, mask=None, GDALResampleAlg=gdal.GRA_Bilinear):
+def processDEM(src, verbose=False, force=False, shp_mask=None, GDALResampleAlg=gdal.GRA_Bilinear):
     """Calculate slope, aspect and tpi from source DEM"""
     
     ## test if 'src' is a valid GDAL
-    if not isinstance(src, gdal.Dataset):
-        print("ERROR (project2UTM): 'src' not of type 'gdal.Dataset'!")
-        sys.exit(-999)
-
-    ## check if a mask layer is desired
-    if mask == None:
-        nLayer = 3
-    else:
-        nLayer = 4
+    assert_gdal_dataset(src, fname='processDEM.src')
 
     ## reproject to UTM
     utm = project2UTM(src, GDALResampleAlg, verbose=verbose, force=force)
@@ -148,7 +140,7 @@ def processDEM(src, verbose=False, force=False, mask=None, GDALResampleAlg=gdal.
     gdal.Warp(dst_asp, utm_asp)
 
     ## put input/slope/aspect into one 3-Band GDAL object
-    dst = mem_drv.Create('', src.RasterXSize,  src.RasterYSize, 3, gdal.GDT_Float64)
+    dst = mem_drv.Create('', src.RasterXSize,  src.RasterYSize, 4, gdal.GDT_Float64)
     dst.SetGeoTransform(src.GetGeoTransform())
     dst.SetProjection(src.GetProjection())
     
@@ -156,39 +148,59 @@ def processDEM(src, verbose=False, force=False, mask=None, GDALResampleAlg=gdal.
     dst.GetRasterBand(2).WriteArray(dst_slp.GetRasterBand(1).ReadAsArray())
     dst.GetRasterBand(3).WriteArray(dst_asp.GetRasterBand(1).ReadAsArray())
 
-    if not mask == None:
+    if shp_mask != None:
         rmask = rasterizeMask(mask, src)
-        dst.GetRasterBand(4).WriteArray(rmask.GetRasterBand(1).ReadAsArray())
+    else:
+        rmask = np.zeros_like(src.GetRasterBand(1).ReadAsArray())
+    dst.GetRasterBand(4).WriteArray(rmask)
 
-    return(dst)
+    return dst
 
 
 
-def call_customtpi():
+def call_customtpi(glob_string, shp_mask_dir):
 
-    #tiles = glob.glob('SRTM1/*_bil.zip')
-    
     # Rules:
     # - slope and aspect calc should be conducted on water-clipped grid
     # - tpi calculations should be carried out on original data (since they)
     #   involve a potentially larger kernel (otherwise we have NODATA increase)
 
-    tiles = glob.glob('srtm1_filled/*.tif')
+    #tiles = glob.glob('srtm1_filled/*.tif')
+    tiles = sorted(glob.glob(glob_string))
+    
+    # create list of shp_mask files
+    files = []
+    
+    for tile in tiles:
+        fname = os.path.basename(tile)
+        fdir  = os.path.dirname(tile)
+        str_lat = fname[:3]
+        str_lon = fname[4:8]
+        
+        # create shp file name
+        shp_file = glob.glob(shp_mask_dir + '/' + str_lon + str_lat + '*.shp')
+        if len(shp_file) == 0:
+            tile = (tile, None)
+        elif len(shp_file) == 1:
+            tile = (tile, shp_file[0])
+        else:
+            log.error("Too many shape files.")
 
-    for tile in sorted( tiles ):
         print 'processing: ', tile, '(', datetime.datetime.now(), ')'
         #tile = "SRTM1/s17_w071_1arc_v3_bil.zip"
 
         #src = gdal.Open('/vsizip/' + os.path.join(tile, bfilename), gdalconst.GA_ReadOnly)
-        src = gdal.Open(tile, gdalconst.GA_ReadOnly)
-        rawdata = processDEM(src)
-
-        DEM       = src.GetRasterBand(1).ReadAsArray()
-        SLOPE     = src.GetRasterBand(2).ReadAsArray()
-        ASPECT    = src.GetRasterBand(3).ReadAsArray()
-        WATERMASK = src.GetRasterBand(4).ReadAsArray()
+        src = gdal.Open(tile[0], gdalconst.GA_ReadOnly)
         
-        NODATA = src.GetRasterBand(1).GetNoDataValue()
+        rawdata = processDEM(src, shp_mask=tile[1])
+            
+
+        DEM       = rawdata.GetRasterBand(1).ReadAsArray()
+        SLOPE     = rawdata.GetRasterBand(2).ReadAsArray()
+        ASPECT    = rawdata.GetRasterBand(3).ReadAsArray()
+        WATERMASK = rawdata.GetRasterBand(4).ReadAsArray()
+        
+        NODATA = rawdata.GetRasterBand(1).GetNoDataValue()
         if NODATA is not None:
             DEM    = np.ma.masked_equal(DEM, NODATA)
             SLOPE  = np.ma.masked_equal(SLOPE, NODATA)
@@ -793,7 +805,7 @@ def main():
     # TODO: cleanup
     # call the old scripts (that have been reworked)
     print "computing tpi"
-    call_customtpi()
+    call_customtpi("srtm1_filled/*.tif", "srtm1_shp_mask")
     
     print "computing landforms"
     call_computeLandformStats5()

@@ -9,6 +9,7 @@
 # - the calculations are currently hardcoded for 30m DEMs, make this universal
 
 import logging
+import math
 import numpy as np
 import os
 from scipy.ndimage.filters import generic_filter
@@ -43,7 +44,7 @@ def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False):
     # inner and outer tpi300 kernels
     k_smooth = create_kernel(radius=2)
     
-    r_out = int(math.ceil(scalefactor / float(res)))
+    radius_outer = int(math.ceil(scalefactor / float(res)))
     if radius_outer > 5:
         radius_inner  = radius_outer - 5
     else:
@@ -55,22 +56,19 @@ def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False):
     x = y = (k_outer.shape[0] - k_inner.shape[0]) / 2
     k_outer[x:x+k_inner.shape[0], y:y+k_inner.shape[1]] = k_inner
 
-    # compute tpi300
-    tpi = dem - gf(dem, np.mean, footprint=k_outer, mode="reflect") + 0.5
-    tpi = generic_filter(tpi300, np.mean, footprint=k_smooth, mode="reflect").astype(int)
+    # compute tpi
+    tpi = dem - generic_filter(dem, np.mean, footprint=k_outer, mode="reflect") + 0.5
+    tpi = generic_filter(tpi, np.mean, footprint=k_smooth, mode="reflect").astype(int)
 
-    pz05_val = np.percentile(tpi300, 69.15)
-    pz10_val = np.percentile(tpi300, 84.13)
-    mz05_val = np.percentile(tpi300, 100 - 69.15)
-    mz10_val = np.percentile(tpi300, 100 - 84.13)
+    mz10, mz05, pz05, pz10 = np.percentile(tpi, [100-84.13, 100-69.15, 69.15, 84.13])
 
     tpi_classes = np.zeros( tpi.shape )
-    tpi_classes[(tpi > pz10_val)]                                       = 1 # ridge
-    tpi_classes[((tpi > pz05_val)  & (tpi <= pz10_val))]                = 2 # upper slope
-    tpi_classes[((tpi > mz05_val)  & (tpi <  pz05_val) & (slope >  5))] = 3 # middle slope
-    tpi_classes[((tpi >= mz05_val) & (tpi <= pz05_val) & (slope <= 5))] = 4 # flats slope
-    tpi_classes[((tpi >= mz10_val) & (tpi <  mz05_val))]                = 5 # lower slopes
-    tpi_classes[(tpi < mz10_val)]                                       = 6 # valleys
+    tpi_classes[(tpi > pz10)]                                   = 1 # ridge
+    tpi_classes[((tpi > pz05)  & (tpi <= pz10))]                = 2 # upper slope
+    tpi_classes[((tpi > mz05)  & (tpi <  pz05) & (slope >  5))] = 3 # middle slope
+    tpi_classes[((tpi >= mz05) & (tpi <= pz05) & (slope <= 5))] = 4 # flats slope
+    tpi_classes[((tpi >= mz10) & (tpi <  mz05))]                = 5 # lower slopes
+    tpi_classes[(tpi < mz10)]                                   = 6 # valleys
 
     if return_unclassed:
         return tpi
