@@ -33,7 +33,7 @@ def create_kernel(radius=2, invert=False):
     return k
 
 
-def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False):
+def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False, dump=None):
     """Classify DEM to tpi300 array according to Weiss 2001 """
 
     # Parameters:
@@ -70,6 +70,9 @@ def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False):
     tpi_classes[((tpi >= mz10) & (tpi <  mz05))]                = 5 # lower slopes
     tpi_classes[(tpi < mz10)]                                   = 6 # valleys
 
+    if dump != None:
+        tpi_classes.tofile(dump)
+
     if return_unclassed:
         return tpi
     return tpi_classes
@@ -104,3 +107,14 @@ def classify_tpi300x2000(dem, slope):
 
     return lf3x20
 
+# lookup table for Weiss landform classification
+TPI300x200_LUT = {1: 'canyons, deeply incised streams', \
+                  2: 'midslope drainages, shallow valleys', \
+                  3: 'upland drainages, headwaters', \
+                  4: 'U-shaped valleys', \
+                  5: 'plains', \
+                  6: 'open slopes', \
+                  7: 'upper slopes, mesas', \
+                  8: 'local ridges, hills in valleys', \
+                  9: 'midslope ridges, small hills in plains', \
+                  10: 'mountain tops, high ridges'}

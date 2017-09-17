@@ -37,68 +37,12 @@ import string
 import xarray as xr
 
 from _tpi import calculate_tpi
-from _geoprocessing import process_dem
+from _geoprocessing import process_dem, read_processed_geotiff
 
 
-def call_customtpi(glob_string, shp_mask_dir):
-
-    # Rules:
-    # - slope and aspect calc should be conducted on water-clipped grid
-    # - tpi calculations should be carried out on original data (since they)
-    #   involve a potentially larger kernel (otherwise we have NODATA increase)
-
-    #tiles = glob.glob('srtm1_filled/*.tif')
-    tiles = sorted(glob.glob(glob_string))
-    
-    # create list of shp_mask files
-    files = []
-    
-    for tile in tiles:
-        fname = os.path.basename(tile)
-        fdir  = os.path.dirname(tile)
-        str_lat = fname[:3]
-        str_lon = fname[4:8]
-        
-        # create shp file name
-        shp_file = glob.glob(shp_mask_dir + '/' + str_lon + str_lat + '*.shp')
-        if len(shp_file) == 0:
-            tile = (tile, None)
-        elif len(shp_file) == 1:
-            tile = (tile, shp_file[0])
-        else:
-            log.error("Too many shape files.")
-
-        print 'processing: ', tile, '(', datetime.datetime.now(), ')'
-        #tile = "SRTM1/s17_w071_1arc_v3_bil.zip"
-
-        #src = gdal.Open('/vsizip/' + os.path.join(tile, bfilename), gdalconst.GA_ReadOnly)
-        #src = gdal.Open(tile[0], gdalconst.GA_ReadOnly)
-        
-        rawdata = process_dem(tile[0], shp_mask=tile[1])
-            
-
-        DEM       = rawdata.GetRasterBand(1).ReadAsArray()
-        SLOPE     = rawdata.GetRasterBand(2).ReadAsArray()
-        ASPECT    = rawdata.GetRasterBand(3).ReadAsArray()
-        WATERMASK = rawdata.GetRasterBand(4).ReadAsArray()
-        
-        NODATA = rawdata.GetRasterBand(1).GetNoDataValue()
-        if NODATA is not None:
-            DEM    = np.ma.masked_equal(DEM, NODATA)
-            SLOPE  = np.ma.masked_equal(SLOPE, NODATA)
-            ASPECT = np.ma.masked_equal(ASPECT, NODATA)
-            DEMM   = np.ma.masked_where(WATERMASK == 1, DEM) 
-
-
-        # TODO: 
-        # - check if we need to mask before this step
-        # - convert to an xarray dataset(s) ?
-        
-        TPI300_CLASSES = calculate_tpi(DEM, SLOPE, 300)
-
-        return (DEM, SLOPE, ASPECT, TPI300_CLASSES)
-    
-
+# consts and lookups
+NODATA = -9999
+defaultD = {'missing_value': NODATA, '_FillValue': NODATA}
 
 # ----------------- PART2 -------------------------------
 # (formerly known as computeLandformStats5.py)
@@ -126,27 +70,8 @@ def call_customtpi(glob_string, shp_mask_dir):
 
 
 
-LUT = {1: 'canyons, deeply incised streams', \
-       2: 'midslope drainages, shallow valleys', \
-       3: 'upland drainages, headwaters', \
-       4: 'U-shaped valleys', \
-       5: 'plains', \
-       6: 'open slopes', \
-       7: 'upper slopes, mesas', \
-       8: 'local ridges, hills in valleys', \
-       9: 'midslope ridges, small hills in plains', \
-       10: 'mountain tops, high ridges'}
 
-
-    # 1: ridge
-    # 2: upper slope
-    # 3: midslope
-    # 4: flats
-    # 5: lower slope
-    # 6: valleys
-
-
-def rename_lat_lon(lat, lon):
+def rename_lat_lon(lat, lon, TYPE):
     latS = 's'
     lonS = 'w'
     
@@ -156,94 +81,139 @@ def rename_lat_lon(lat, lon):
     outS = '%s%2.2f%s%2.2f_0.5arc_%s.nc' % (latS, math.fabs(lat), lonS, math.fabs(lon), TYPE)
     return outS
 
-def call_computeLandformStats5():
-    # call old computeLandformStats5.py code
+
+def define_landform_classes(step, limit):
+    """Define the landform classes"""
     
-
-    CUTOFF = 1.0        # min percent landmass for LF to be considered
-    TYPE = 'tpi300'     # tpi2000
-
-    #for tile in sorted( glob.glob("landforms/*.tif") ):
-
-    f_el = open('elevations_full_%s.txt' % TYPE, 'w')
-    f_lf = open('landforms_full_%s.txt' % TYPE, 'w')
-    f_sl = open('slopes_full_%s.txt' % TYPE, 'w')
-
-    # landforms (TPI300x2000)
-    #header = '\t'.join(['lat', 'lon', 'lf_cnt'] + ['LF%d' % x for x in range(1,11)]) + '\n'
-
-    # elevation boundaries
-    ele_breaks = [-1000] + range(400, 4801, 400) + [10000]
+    # Parameters:
+    # - step: elevation interval for landform groups (def: 400m )
+    # - limit: elevation limit [inclusive, in m]
+    
+    ele_breaks = [-1000] + range(step, limit, step) + [10000]
     ele_cnt = range(1, len(ele_breaks))
 
+    # basic set of landforms
+    # code: [slopeid<1..6>][aspectid<0,1..4>]
     lf_set = [10,21,22,23,24,31,32,33,34,40,51,52,53,54,60]
 
     lf_full_set = []
     for e in ele_cnt:
         lf_full_set += [x+(100*e) for x in lf_set]
 
+    return lf_full_set
+
+
+def compute_landforms(glob_string, shp_mask_dir):
+    """Compute landform units based on elevation, slope, aspect and tpi classes."""
+
+
+    CUTOFF = 1.0        # min percent landmass for LF to be considered
+    TYPE = 'tpi300'     # tpi2000
+
+    #for tile in sorted( glob.glob("landforms/*.tif") ):
+
+
+    lf_full_set = define_landform_classes(400, 5000)
+    
     # new landforms
     header = '\t'.join(['lat', 'lon', 'lf_cnt'] + ['LF%d' % x for x in lf_full_set]) + '\n'
+
+    f_el = open('elevations_full_%s.txt' % TYPE, 'w')
+    f_lf = open('landforms_full_%s.txt' % TYPE, 'w')
+    f_sl = open('slopes_full_%s.txt' % TYPE, 'w')
 
     f_el.write(header)
     f_lf.write(header)
     f_sl.write(header)
+    
+    # Rules:
+    # - slope and aspect calc should be conducted on water-clipped grid
+    # - tpi calculations should be carried out on original data (since they)
+    #   involve a potentially larger kernel (otherwise we have NODATA increase)
 
-    tiles = glob.glob('/Volumes/Drobo/projects/EarthShape/subpixel/srtm1_masked/*.tif')
+    #tiles = glob.glob('srtm1_filled/*.tif')
+    tiles = sorted(glob.glob(glob_string))
+    
+    # create list of shp_mask files
+    files = []
+    
+    for tile in tiles:
+        fname = os.path.basename(tile)
+        fdir  = os.path.dirname(tile)
+        str_lat = fname[:3]
+        str_lon = fname[4:8]
+        
+        # create shp file name
+        shp_file = glob.glob(shp_mask_dir + '/' + str_lon + str_lat + '*.shp')
+        if len(shp_file) == 0:
+            tile = (tile, None)
+        elif len(shp_file) == 1:
+            tile = (tile, shp_file[0])
+        else:
+            log.error("Too many shape files.")
 
-    for tile in sorted(tiles):
+        print 'processing: ', tile, '(', datetime.datetime.now(), ')'
+
+        DEBUG=False
+
+        if DEBUG:
+            rawdata = read_processed_geotiff(tile[0])
+        else:
+            dumpname = tile[0].replace('srtm1_filled', 'srtm1_dump_gtiff')
+            rawdata = process_dem(tile[0], shp_mask=tile[1], dump=dumpname)
+            
+        DEM       = rawdata.GetRasterBand(1).ReadAsArray()
+        SLOPE     = rawdata.GetRasterBand(2).ReadAsArray()
+        ASPECT    = rawdata.GetRasterBand(3).ReadAsArray()
+        WATERMASK = rawdata.GetRasterBand(4).ReadAsArray()
+        
+        # make sure we apply the existing nodata values
+        DNODATA = rawdata.GetRasterBand(1).GetNoDataValue()        
+        SNODATA = rawdata.GetRasterBand(2).GetNoDataValue()
+        ANODATA = rawdata.GetRasterBand(3).GetNoDataValue()
+        
+        NODATA = rawdata.GetRasterBand(1).GetNoDataValue()
+        if NODATA is not None:
+            DEM    = np.ma.masked_equal(DEM, NODATA)
+            SLOPE  = np.ma.masked_equal(SLOPE, NODATA)
+            ASPECT = np.ma.masked_equal(ASPECT, NODATA)
+            DEMM   = np.ma.masked_where(WATERMASK == 1, DEM) 
+
+        # TODO: 
+        # - check if we need to mask before this step
+        # - convert to an xarray dataset(s) ?
+        # - rename LF (and other stuff)
+
+        dumpname = tile[0].replace('srtm1_filled', 'srtm1_dump_tpi')
+        if DEBUG:
+            LF = np.fromfile(dumpname)
+        else:
+            LF = calculate_tpi(DEM, SLOPE, 300, dump=dumpname)
+
+        # we now work with DEM, DEMM, SLOPE, ASPECT, TPI300_CLASSES ()
 
         # get lower left coord of 1 deg tile, all in the west/south hemisphere
-        b = [-int(x[1:]) for x in os.path.basename(tile).split('_')[0:2]]
+        b = [-int(x[1:]) for x in os.path.basename(tile[0]).split('_')[0:2]]
         blat, blon = b
 
-        print blat, blon
-        
-        #if blat > -54:
-        #    continue
-
-        # calc slope file
-        #os.system('gdaldem slope -s 111122 %s %s' % (tile, string.replace(tile[:-4], 'srtm1', 'slope') + '_slope.tif'))
-
-        #print tile, 
-        #src = gdal.Open( string.replace(tile[:-4], 'srtm1', 'landforms') + '_lf300x2000.tif' , gdalconst.GA_ReadOnly)
-        
         # landforms
-        
-        src = gdal.Open( string.replace(tile[:-4], 'srtm1_masked', TYPE + 'NEW') + '_%ssm_classed.tif' % TYPE, gdalconst.GA_ReadOnly)
-        LF      = src.GetRasterBand(1).ReadAsArray()
-        LNODATA = src.GetRasterBand(1).GetNoDataValue()
-
-        # slopes
-        src = gdal.Open( string.replace(tile[:-4], 'srtm1_masked', 'slopeNEW') + '_slope.tif', gdalconst.GA_ReadOnly)
-        SLOPE   = src.GetRasterBand(1).ReadAsArray()
-        SNODATA = src.GetRasterBand(1).GetNoDataValue()
-
-        # aspects
-        src = gdal.Open( string.replace(tile[:-4], 'srtm1_masked', 'aspectNEW') + '_aspect.tif', gdalconst.GA_ReadOnly)
-        ASPECT   = src.GetRasterBand(1).ReadAsArray()
-        ANODATA = src.GetRasterBand(1).GetNoDataValue()
-        
+        # tpi300_classed nodata/ from srtm1_masked
+        #LNODATA = src.GetRasterBand(1).GetNoDataValue()
+    
         # classify aspect
         ASPECT2 = np.ma.masked_where(np.asarray(ASPECT, 'i') < 0, np.asarray(ASPECT, 'i'))
-        ASPECT2[np.where(( ASPECT >= 315 ) | ((ASPECT>=0) & (ASPECT < 45)))] = 1   # north
-        ASPECT2[np.where(( ASPECT >= 45  ) & ( ASPECT < 135))] = 2   # east
-        ASPECT2[np.where(( ASPECT >= 135 ) & ( ASPECT < 225))] = 3   # south
-        ASPECT2[np.where(( ASPECT >= 225 ) & ( ASPECT < 315))] = 4   # west
+        ASPECT2[(( ASPECT >= 315 ) | ((ASPECT>=0) & (ASPECT < 45)))] = 1    # north
+        ASPECT2[( ASPECT >= 45  ) & ( ASPECT < 135)] = 2                    # east
+        ASPECT2[( ASPECT >= 135 ) & ( ASPECT < 225)] = 3                    # south
+        ASPECT2[( ASPECT >= 225 ) & ( ASPECT < 315)] = 4                    # west
 
-        # elevation
-        src     = gdal.Open( tile, gdalconst.GA_ReadOnly)
-        DEM     = src.GetRasterBand(1).ReadAsArray()
-        DNODATA = src.GetRasterBand(1).GetNoDataValue()
-
-        
         # the one and only base mask !!!
         DEMMASK = np.ma.masked_where( (DEM == DNODATA), np.ones_like(DEM))
 
-        # secondary masks (are merged with the water mask of srt1_masked)
-        ASPMASK = np.where(ASPECT2 < 0, 1, 0) * np.where(DEMMASK.filled(-9999) == -9999, 1, 0)
-        SLOMASK = np.where(SLOPE < 0, 1, 0) # * np.where(DEMMASK.filled(-9999) == -9999, 1, 0)
-        LFMASK  = np.where(LF < 0, 1, 0) * np.where(DEMMASK.filled(-9999) == -9999, 1, 0)
+        # secondary masks (are merged with the water mask of srtm1_masked)
+        ASPMASK = np.where(ASPECT2 < 0, 1, 0) * np.where(DEMMASK.filled(NODATA) == NODATA, 1, 0)
+        SLOMASK = np.where(SLOPE < 0, 1, 0) # * np.where(DEMMASK.filled(NODATA) == NODATA, 1, 0)
+        LFMASK  = np.where(LF < 0, 1, 0) * np.where(DEMMASK.filled(NODATA) == NODATA, 1, 0)
 
         # mask with secondary masks
         DEM0 = np.ma.masked_where( DEM == DNODATA, DEM)
@@ -261,7 +231,6 @@ def call_computeLandformStats5():
             # reset output lists
             slopes     = []
             elevations = []
-
 
             #print 'subset %d -------' % i
             if t == 0:
@@ -316,7 +285,7 @@ def call_computeLandformStats5():
 
             # create netcdf
             ds = xr.Dataset()
-            foutname = 'netcdfs_%s/' % TYPE + rename_lat_lon(lat, lon)
+            foutname = 'netcdfs_%s/' % TYPE + rename_lat_lon(lat, lon, TYPE)
             
             Dunits = {'slope': 'degree', 'elevation': 'm', 'landform': '-', 'aspect': '-'}
             Dlname = {'slope': 'Slope',
@@ -346,13 +315,13 @@ def call_computeLandformStats5():
                 #if np.ndim(_mask) != 0:
                 #    da[_mask] = np.ma.masked
 
-                da = xr.DataArray(da[:].filled(-9999),
+                da = xr.DataArray(da[:].filled(NODATA),
                                   name=name,
                                   coords=[('lat', LATS[:]), ('lon', LONS[:])])
                 da.attrs['units'] = Dunits[name]
                 da.attrs['long_name'] = Dlname[name]
-                da.attrs['missing_value'] = -9999
-                da.attrs['_FillValue'] = -9999
+                da.attrs['missing_value'] = NODATA
+                da.attrs['_FillValue'] = NODATA
                 ds[name] = da
             
             ds.to_netcdf(foutname, format='NETCDF4_CLASSIC')
@@ -444,12 +413,6 @@ def call_computeLandformStats5():
 # ----------------- PART3 -------------------------------
 # (formerly known as create_lpj_lf_netcdf.py)
 #
-# now base for lgt_createinput.py
-
-# consts and lookups
-NODATA = -9999
-
-defaultD = {'missing_value': NODATA, '_FillValue': NODATA}
 
 varD = {'TOTC': ('SOC', 'Soil Organic Carbon', 'percent', 0.1),
         'SDTO': ('SAND', 'Sand', 'percent', 1.0),
@@ -684,13 +647,8 @@ def create_gridlist(ds):
 def main():
     """Main Script."""    
     
-    # TODO: cleanup
-    # call the old scripts (that have been reworked)
-    print "computing tpi"
-    call_customtpi("srtm1_filled/*.tif", "srtm1_shp_mask")
-    
     print "computing landforms"
-    call_computeLandformStats5()
+    compute_landforms("srtm1_filled/*.tif", "srtm1_shp_mask")
     
     # source files
     soilref = os.path.join('soil', 'GLOBAL_WISESOIL_DOM_05deg.nc')
