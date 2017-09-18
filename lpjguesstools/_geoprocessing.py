@@ -72,14 +72,7 @@ def calc_aspect(Sx, Sy):
     aspect = np.rad2deg( np.arctan2(Sy, -Sx) )
     aspect = np.mod((450.0 - aspect), 360.)
     aspect[aspect==360] = 0
-    
-    # reclass
-    asp_cl = np.zeros_like(aspect)
-    asp_cl[(aspect >= 315) | (aspect <  45)] = 1    # North
-    asp_cl[(aspect >= 45)  & (aspect < 135)] = 2    # East
-    asp_cl[(aspect >= 135) & (aspect < 225)] = 3    # South
-    asp_cl[(aspect >= 225) & (aspect < 315)] = 4    # West
-    return (aspect, asp_cl)
+    return aspect
 
 def calc_slope(Sx, Sy):
     """Calculate slope given X and Y slope components (unit: deg)."""
@@ -199,7 +192,7 @@ def compute_spatial_dataset(fname, fname_shp=None):
                         
                         Sx, Sy = calc_slope_components(dem_filled, dx)
                         slope = calc_slope(Sx, Sy)
-                        aspect, aspect_classed = calc_aspect(Sx, Sy)
+                        aspect = calc_aspect(Sx, Sy)
                         
                         # calculate tpi (now in utm)
                         landform = calculate_tpi(dem, slope, 300, res=dx)
@@ -236,7 +229,7 @@ def compute_spatial_dataset(fname, fname_shp=None):
                                     dst_transform=out_kwargs['transform'],
                                     dst_crs=out_kwargs['crs'],
                                     #dst_nodata=dst_nodata,
-                                    resampling=Resampling.bilinear,
+                                    resampling=Resampling.nearest,
                                     num_threads=2)
 
                                 dem_mask = ds_geo2.read(2).astype(bool)
