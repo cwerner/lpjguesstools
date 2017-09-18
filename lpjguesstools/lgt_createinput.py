@@ -150,8 +150,47 @@ def compute_landforms(glob_string, shp_mask_dir):
 
         print 'processing: ', tile, '(', datetime.datetime.now(), ')'
 
-        ds = compute_spatial_dataset(tile[0], fname_shp=tile[1])
-        ds.to_netcdf('srtm1_dump_nc/%s.nc' % os.path.basename(tile[0])[:-4])
+        #ds = compute_spatial_dataset(tile[0], fname_shp=tile[1])
+        #ds.to_netcdf('srtm1_dump_nc/%s.nc' % os.path.basename(tile[0])[:-4])
+
+        ds = xr.open_dataset("srtm1_dump_nc/s27_w069_1arc_v3.nc", decode_cf=False)
+
+        # Calculate landform ids.
+        
+        def classify_aspect(ds):
+            """Classify dataarray from continuous aspect to 1,2,3,4."""        
+            aspect = ds['aspect'].to_masked_array()
+            asp_cl = ds['aspect'].to_masked_array()
+            asp_cl[(aspect >= 315) | (aspect <  45)] = 1    # North
+            asp_cl[(aspect >= 45)  & (aspect < 135)] = 2    # East
+            asp_cl[(aspect >= 135) & (aspect < 225)] = 3    # South
+            asp_cl[(aspect >= 225) & (aspect < 315)] = 4    # West
+            asp_cl = np.ma.masked_where(ds['mask'] == 0, asp_cl).filled(NODATA)
+            ds['aspect_class'] = ds['aspect'].copy()
+            ds['aspect_class'][:] = asp_cl
+            ds['aspect_class'].attrs.update(defaultD)
+        
+        def classify_landform(ds):
+            """Subdivide landform classes by aspect class."""        
+            SHAPE = ds['mask'].shape
+            lf_cl = np.ma.masked_array(np.ones_like(ds['mask'].values), mask=ds['mask'].values)
+            
+            aspect_lfs = (ds['aspect_class'].to_masked_array() > 0) & (np.in1d(ds['landform'].to_masked_array(), [2,3,5]).reshape(SHAPE))
+            
+            lf_cl = np.ma.where(aspect_lfs, ds['landform'] * 10 + ds['aspect_class'],
+                                            ds['landform'] * 10).filled(NODATA)
+            lf_cl = np.ma.masked_where(ds['mask'] == 0, lf_cl).filled(NODATA)
+                                            
+            ds['landform_class'] = ds['landform'].copy()
+            ds['landform_class'][:] = lf_cl
+            ds['landform_class'].attrs.update(defaultD)            
+            
+            
+        # reclass
+        classify_aspect(ds)
+        classify_landform(ds)
+                
+        ds.to_netcdf("test.nc")
 
         exit()
         DEMMASK = np.ma.masked_where( (DEM == DNODATA), np.ones_like(DEM))
