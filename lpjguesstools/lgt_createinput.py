@@ -37,7 +37,7 @@ import string
 import xarray as xr
 
 from _tpi import calculate_tpi
-from _geoprocessing import process_dem, read_processed_geotiff
+from _geoprocessing import process_dem, read_processed_geotiff, compute_mask_slope_aspect
 
 
 # consts and lookups
@@ -154,6 +154,12 @@ def compute_landforms(glob_string, shp_mask_dir):
 
         print 'processing: ', tile, '(', datetime.datetime.now(), ')'
 
+        # alternative implementation
+        ds = compute_mask_slope_aspect(tile[0], fname_shp=tile[1])
+        ds.to_netcdf('dump.nc')
+
+        exit()
+        
         DEBUG=False
 
         if DEBUG:
