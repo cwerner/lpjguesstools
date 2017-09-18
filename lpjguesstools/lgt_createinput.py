@@ -30,15 +30,11 @@ import glob
 import math
 import numpy as np
 import os
-from osgeo import osr, gdal, gdalconst
 import pandas as pd
-import rasterio as rio
 import string
 import xarray as xr
 
-from _tpi import calculate_tpi
-from _geoprocessing import process_dem, read_processed_geotiff, compute_mask_slope_aspect
-
+from _geoprocessing import compute_spatial_dataset
 
 # consts and lookups
 NODATA = -9999
@@ -154,66 +150,10 @@ def compute_landforms(glob_string, shp_mask_dir):
 
         print 'processing: ', tile, '(', datetime.datetime.now(), ')'
 
-        # alternative implementation
-        ds = compute_mask_slope_aspect(tile[0], fname_shp=tile[1])
-        ds.to_netcdf('dump.nc')
+        ds = compute_spatial_dataset(tile[0], fname_shp=tile[1])
+        ds.to_netcdf('srtm1_dump_nc/%s.nc' % os.path.basename(tile[0])[:-4])
 
         exit()
-        
-        DEBUG=False
-
-        if DEBUG:
-            rawdata = read_processed_geotiff(tile[0])
-        else:
-            dumpname = tile[0].replace('srtm1_filled', 'srtm1_dump_gtiff')
-            rawdata = process_dem(tile[0], shp_mask=tile[1], dump=dumpname)
-            
-        DEM       = rawdata.GetRasterBand(1).ReadAsArray()
-        SLOPE     = rawdata.GetRasterBand(2).ReadAsArray()
-        ASPECT    = rawdata.GetRasterBand(3).ReadAsArray()
-        WATERMASK = rawdata.GetRasterBand(4).ReadAsArray()
-        
-        # make sure we apply the existing nodata values
-        DNODATA = rawdata.GetRasterBand(1).GetNoDataValue()        
-        SNODATA = rawdata.GetRasterBand(2).GetNoDataValue()
-        ANODATA = rawdata.GetRasterBand(3).GetNoDataValue()
-        
-        NODATA = rawdata.GetRasterBand(1).GetNoDataValue()
-        if NODATA is not None:
-            DEM    = np.ma.masked_equal(DEM, NODATA)
-            SLOPE  = np.ma.masked_equal(SLOPE, NODATA)
-            ASPECT = np.ma.masked_equal(ASPECT, NODATA)
-            DEMM   = np.ma.masked_where(WATERMASK == 1, DEM) 
-
-        # TODO: 
-        # - check if we need to mask before this step
-        # - convert to an xarray dataset(s) ?
-        # - rename LF (and other stuff)
-
-        dumpname = tile[0].replace('srtm1_filled', 'srtm1_dump_tpi')
-        if DEBUG:
-            LF = np.fromfile(dumpname)
-        else:
-            LF = calculate_tpi(DEM, SLOPE, 300, dump=dumpname)
-
-        # we now work with DEM, DEMM, SLOPE, ASPECT, TPI300_CLASSES ()
-
-        # get lower left coord of 1 deg tile, all in the west/south hemisphere
-        b = [-int(x[1:]) for x in os.path.basename(tile[0]).split('_')[0:2]]
-        blat, blon = b
-
-        # landforms
-        # tpi300_classed nodata/ from srtm1_masked
-        #LNODATA = src.GetRasterBand(1).GetNoDataValue()
-    
-        # classify aspect
-        ASPECT2 = np.ma.masked_where(np.asarray(ASPECT, 'i') < 0, np.asarray(ASPECT, 'i'))
-        ASPECT2[(( ASPECT >= 315 ) | ((ASPECT>=0) & (ASPECT < 45)))] = 1    # north
-        ASPECT2[( ASPECT >= 45  ) & ( ASPECT < 135)] = 2                    # east
-        ASPECT2[( ASPECT >= 135 ) & ( ASPECT < 225)] = 3                    # south
-        ASPECT2[( ASPECT >= 225 ) & ( ASPECT < 315)] = 4                    # west
-
-        # the one and only base mask !!!
         DEMMASK = np.ma.masked_where( (DEM == DNODATA), np.ones_like(DEM))
 
         # secondary masks (are merged with the water mask of srtm1_masked)

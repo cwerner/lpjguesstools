@@ -33,13 +33,16 @@ def create_kernel(radius=2, invert=False):
     return k
 
 
-def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False, dump=None):
+def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False):
     """Classify DEM to tpi300 array according to Weiss 2001 """
 
     # Parameters:
     # - scalefactor: outerradius in map units (300 := 300m)
     # - res: resolution of one pixel in map units (default SRTM1: 30m)
     # - return_unclassed: return the continuous tpi values
+    # - dx: cell size
+    
+    # TODO: check if we have boundary issues in tpi calculation
     
     # inner and outer tpi300 kernels
     k_smooth = create_kernel(radius=2)
@@ -69,9 +72,6 @@ def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False, dump=
     tpi_classes[((tpi >= mz05) & (tpi <= pz05) & (slope <= 5))] = 4 # flats slope
     tpi_classes[((tpi >= mz10) & (tpi <  mz05))]                = 5 # lower slopes
     tpi_classes[(tpi < mz10)]                                   = 6 # valleys
-
-    if dump != None:
-        tpi_classes.tofile(dump)
 
     if return_unclassed:
         return tpi
