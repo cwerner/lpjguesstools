@@ -242,3 +242,44 @@ def compute_spatial_dataset(fname, fname_shp=None):
     ds = create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=msrc_kwargs)
     
     return ds
+
+# xarray-based methods
+
+def get_center_coord(ds):
+    """Return the (lon, lat) of dataset (center)"""
+    lat_c = min(ds.lat.values) + (max(ds.lat.values) - min(ds.lat.values)) * 0.5
+    lon_c = min(ds.lon.values) + (max(ds.lon.values) - min(ds.lon.values)) * 0.5
+    return (lon_c, lat_c)
+        
+
+def classify_aspect(ds):
+    """Classify dataarray from continuous aspect to 1,2,3,4."""        
+    aspect = ds['aspect'].to_masked_array()
+    asp_cl = ds['aspect'].to_masked_array()
+    asp_cl[(aspect >= 315) | (aspect <  45)] = 1    # North
+    asp_cl[(aspect >= 45)  & (aspect < 135)] = 2    # East
+    asp_cl[(aspect >= 135) & (aspect < 225)] = 3    # South
+    asp_cl[(aspect >= 225) & (aspect < 315)] = 4    # West
+    asp_cl = np.ma.masked_where(ds['mask'] == 0, asp_cl).filled(NODATA)
+    ds['aspect_class'] = xr.full_like(ds['aspect'], NODATA)
+    ds['aspect_class'][:] = asp_cl
+    ds['aspect_class'].attrs.update(defaultAttrsDA)
+    return ds
+
+
+def classify_landform(ds):
+    """Subdivide landform classes by aspect class."""        
+    SHAPE = ds['mask'].shape
+    lf_cl = np.ma.masked_array(np.ones_like(ds['mask'].values), mask=ds['mask'].values)
+    
+    aspect_lfs = (ds['aspect_class'].to_masked_array() > 0) & (np.in1d(ds['landform'].to_masked_array(), [2,3,5]).reshape(SHAPE))
+    
+    lf_cl = np.ma.where(aspect_lfs, ds['landform'] * 10 + ds['aspect_class'],
+                                    ds['landform'] * 10).filled(NODATA)
+    lf_cl = np.ma.masked_where(ds['mask'] == 0, lf_cl).filled(NODATA)
+                                    
+    ds['landform_class'] = xr.full_like(ds['landform'], NODATA)
+    ds['landform_class'][:] = lf_cl
+    ds['landform_class'].attrs.update(defaultAttrsDA)
+    return ds
+        

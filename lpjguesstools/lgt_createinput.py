@@ -34,7 +34,8 @@ import pandas as pd
 import string
 import xarray as xr
 
-from _geoprocessing import compute_spatial_dataset
+from _geoprocessing import compute_spatial_dataset, classify_aspect, \
+                           classify_landform, get_center_coord
 
 # consts and lookups
 NODATA = -9999
@@ -65,17 +66,16 @@ defaultD = {'missing_value': NODATA, '_FillValue': NODATA}
 # 2017/03
 
 
-
-
-def rename_lat_lon(lat, lon, TYPE):
-    latS = 's'
-    lonS = 'w'
-    
-    if lat >= 0: latS = 'n'
-    if lon >= 0: lonS = 'e'
-    
-    outS = '%s%2.2f%s%2.2f_0.5arc_%s.nc' % (latS, math.fabs(lat), lonS, math.fabs(lon), TYPE)
-    return outS
+def convert_float_coord_to_string(coord, p=2):
+    """Convert a (lon,lat) coord to string."""
+    lon, lat = round(coord[0], p), round(coord[1], p)
+    LA, LO = 'n', 'e'
+    if lat < 0: LA = 's'
+    if lon < 0: LO = 'w'
+    lat_s = "%.2f" % round(abs(lat),2)
+    lon_s = "%.2f" % round(abs(lon),2)
+    coord_s = '%s%s%s%s' % (LA, lat_s.zfill(p+3), LO, lon_s.zfill(p+4))
+    return coord_s
 
 
 def define_landform_classes(step, limit):
@@ -150,41 +150,11 @@ def compute_landforms(glob_string, shp_mask_dir):
 
         print 'processing: ', tile, '(', datetime.datetime.now(), ')'
 
+        # SWITCH FOR DEBUGGING
         #ds = compute_spatial_dataset(tile[0], fname_shp=tile[1])
         #ds.to_netcdf('srtm1_dump_nc/%s.nc' % os.path.basename(tile[0])[:-4])
 
         ds = xr.open_dataset("srtm1_dump_nc/s27_w069_1arc_v3.nc", decode_cf=False)
-
-        # Calculate landform ids.
-        
-        def classify_aspect(ds):
-            """Classify dataarray from continuous aspect to 1,2,3,4."""        
-            aspect = ds['aspect'].to_masked_array()
-            asp_cl = ds['aspect'].to_masked_array()
-            asp_cl[(aspect >= 315) | (aspect <  45)] = 1    # North
-            asp_cl[(aspect >= 45)  & (aspect < 135)] = 2    # East
-            asp_cl[(aspect >= 135) & (aspect < 225)] = 3    # South
-            asp_cl[(aspect >= 225) & (aspect < 315)] = 4    # West
-            asp_cl = np.ma.masked_where(ds['mask'] == 0, asp_cl).filled(NODATA)
-            ds['aspect_class'] = xr.full_like(ds['aspect'], NODATA)
-            ds['aspect_class'][:] = asp_cl
-            ds['aspect_class'].attrs.update(defaultD)
-        
-        def classify_landform(ds):
-            """Subdivide landform classes by aspect class."""        
-            SHAPE = ds['mask'].shape
-            lf_cl = np.ma.masked_array(np.ones_like(ds['mask'].values), mask=ds['mask'].values)
-            
-            aspect_lfs = (ds['aspect_class'].to_masked_array() > 0) & (np.in1d(ds['landform'].to_masked_array(), [2,3,5]).reshape(SHAPE))
-            
-            lf_cl = np.ma.where(aspect_lfs, ds['landform'] * 10 + ds['aspect_class'],
-                                            ds['landform'] * 10).filled(NODATA)
-            lf_cl = np.ma.masked_where(ds['mask'] == 0, lf_cl).filled(NODATA)
-                                            
-            ds['landform_class'] = xr.full_like(ds['landform'], NODATA)
-            ds['landform_class'][:] = lf_cl
-            ds['landform_class'].attrs.update(defaultD)
-            
 
 
         # split into 4 tiles now
@@ -207,24 +177,7 @@ def compute_landforms(glob_string, shp_mask_dir):
         ds3 = ds[dict(lat=lats[1], lon=lons[0])]
         ds4 = ds[dict(lat=lats[1], lon=lons[1])]
 
-        def get_center_coord(ds):
-            """Return the (lon, lat) of dataset (center)"""
-            lat_c = min(ds.lat.values) + (max(ds.lat.values) - min(ds.lat.values)) * 0.5
-            lon_c = min(ds.lon.values) + (max(ds.lon.values) - min(ds.lon.values)) * 0.5
-            return (lon_c, lat_c)
-        
-        def convert_float_coord_to_string(coord, p=2):
-            lon = round(coord[0], p)
-            lat = round(coord[1], p)
-            print coord
-            LA, LO = 'n', 'e'
-            if lat < 0: LA = 's'
-            if lon < 0: LO = 'w'
-            lat_s = "%.2f" % round(abs(lat),2)
-            lon_s = "%.2f" % round(abs(lon),2)
-            print lon_s, lat_s
-            coord_s = '%s%s%s%s' % (LA, lat_s.zfill(p+3), LO, lon_s.zfill(p+4))
-            return coord_s
+
             
         
         for ds_i in [ds1, ds2, ds3, ds4]:
@@ -234,8 +187,7 @@ def compute_landforms(glob_string, shp_mask_dir):
             classify_aspect(ds_i)
             classify_landform(ds_i)
             
-            # TODO: compose final landform units based on elevation intervals + landform_class
-            
+            # TODO: compose final landform units based on elevation intervals + landform_class            
             ds_i.to_netcdf("processed/srtm1_processed_%s.nc" % convert_float_coord_to_string((lon,lat)))
         
         exit()
