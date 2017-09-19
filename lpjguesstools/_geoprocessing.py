@@ -267,7 +267,7 @@ def classify_aspect(ds):
     return ds
 
 
-def classify_landform(ds):
+def classify_landform(ds, elevation_levels=[]):
     """Subdivide landform classes by aspect class."""        
     SHAPE = ds['mask'].shape
     lf_cl = np.ma.masked_array(np.ones_like(ds['mask'].values), mask=ds['mask'].values)
@@ -276,10 +276,15 @@ def classify_landform(ds):
     
     lf_cl = np.ma.where(aspect_lfs, ds['landform'] * 10 + ds['aspect_class'],
                                     ds['landform'] * 10).filled(NODATA)
-    lf_cl = np.ma.masked_where(ds['mask'] == 0, lf_cl).filled(NODATA)
-                                    
+    lf_cl = np.ma.masked_where(ds['mask'] == 0, lf_cl)
+    
+    # if we have elevation levels subdivide the landform classes
+    ele = ds['dem'].to_masked_array()
+    if len(elevation_levels) > 0:
+        for i, (lb, ub) in enumerate(zip(elevation_levels[:-1], elevation_levels[1:])):
+            lf_cl = np.ma.where(((ele >= lb) & (ele < ub)), lf_cl + (i+1) * 100, lf_cl)   
+    
     ds['landform_class'] = xr.full_like(ds['landform'], NODATA)
-    ds['landform_class'][:] = lf_cl
+    ds['landform_class'][:] = lf_cl.filled(NODATA)
     ds['landform_class'].attrs.update(defaultAttrsDA)
     return ds
-        

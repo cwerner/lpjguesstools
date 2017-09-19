@@ -79,7 +79,7 @@ def convert_float_coord_to_string(coord, p=2):
 
 
 def define_landform_classes(step, limit):
-    """Define the landform classes"""
+    """Define the landform classes."""
     
     # Parameters:
     # - step: elevation interval for landform groups (def: 400m )
@@ -96,7 +96,7 @@ def define_landform_classes(step, limit):
     for e in ele_cnt:
         lf_full_set += [x+(100*e) for x in lf_set]
 
-    return lf_full_set
+    return (lf_full_set, ele_breaks)
 
 
 def compute_landforms(glob_string, shp_mask_dir):
@@ -104,23 +104,6 @@ def compute_landforms(glob_string, shp_mask_dir):
 
 
     CUTOFF = 1.0        # min percent landmass for LF to be considered
-    TYPE = 'tpi300'     # tpi2000
-
-    #for tile in sorted( glob.glob("landforms/*.tif") ):
-
-
-    lf_full_set = define_landform_classes(400, 5000)
-    
-    # new landforms
-    header = '\t'.join(['lat', 'lon', 'lf_cnt'] + ['LF%d' % x for x in lf_full_set]) + '\n'
-
-    f_el = open('elevations_full_%s.txt' % TYPE, 'w')
-    f_lf = open('landforms_full_%s.txt' % TYPE, 'w')
-    f_sl = open('slopes_full_%s.txt' % TYPE, 'w')
-
-    f_el.write(header)
-    f_lf.write(header)
-    f_sl.write(header)
     
     # Rules:
     # - slope and aspect calc should be conducted on water-clipped grid
@@ -177,18 +160,21 @@ def compute_landforms(glob_string, shp_mask_dir):
         ds3 = ds[dict(lat=lats[1], lon=lons[0])]
         ds4 = ds[dict(lat=lats[1], lon=lons[1])]
 
-
-            
+        # define the final landform classes (now with elevation brackets)
+        lf_classes, lf_ele_levels = define_landform_classes(400, 6000)
         
+        # operate on tiled datasets
         for ds_i in [ds1, ds2, ds3, ds4]:
             lon, lat = get_center_coord(ds_i)
             
             # reclass
             classify_aspect(ds_i)
-            classify_landform(ds_i)
+            classify_landform(ds_i, elevation_levels=lf_ele_levels)
+
             
             # TODO: compose final landform units based on elevation intervals + landform_class            
             ds_i.to_netcdf("processed/srtm1_processed_%s.nc" % convert_float_coord_to_string((lon,lat)))
+        
         
         exit()
         REMOVE_WHENFIXED = False
