@@ -281,10 +281,15 @@ def classify_landform(ds, elevation_levels=[]):
     # if we have elevation levels subdivide the landform classes
     ele = ds['dem'].to_masked_array()
     if len(elevation_levels) > 0:
+        # add global elevation step attribute (second element, first is lower boundary)
+        ds.attrs['landform_elevation_step'] = "%s" % elevation_levels[1]
+
         for i, (lb, ub) in enumerate(zip(elevation_levels[:-1], elevation_levels[1:])):
             lf_cl = np.ma.where(((ele >= lb) & (ele < ub)), lf_cl + (i+1) * 100, lf_cl)   
     
     ds['landform_class'] = xr.full_like(ds['landform'], NODATA)
     ds['landform_class'][:] = lf_cl.filled(NODATA)
     ds['landform_class'].attrs.update(defaultAttrsDA)
+    
+    
     return ds
