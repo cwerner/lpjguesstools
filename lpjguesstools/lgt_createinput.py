@@ -166,7 +166,7 @@ def compute_landforms(glob_string, shp_mask_dir):
             asp_cl[(aspect >= 135) & (aspect < 225)] = 3    # South
             asp_cl[(aspect >= 225) & (aspect < 315)] = 4    # West
             asp_cl = np.ma.masked_where(ds['mask'] == 0, asp_cl).filled(NODATA)
-            ds['aspect_class'] = ds['aspect'].copy()
+            ds['aspect_class'] = xr.full_like(ds['aspect'], NODATA)
             ds['aspect_class'][:] = asp_cl
             ds['aspect_class'].attrs.update(defaultD)
         
@@ -181,136 +181,66 @@ def compute_landforms(glob_string, shp_mask_dir):
                                             ds['landform'] * 10).filled(NODATA)
             lf_cl = np.ma.masked_where(ds['mask'] == 0, lf_cl).filled(NODATA)
                                             
-            ds['landform_class'] = ds['landform'].copy()
+            ds['landform_class'] = xr.full_like(ds['landform'], NODATA)
             ds['landform_class'][:] = lf_cl
-            ds['landform_class'].attrs.update(defaultD)            
+            ds['landform_class'].attrs.update(defaultD)
             
-            
-        # reclass
-        classify_aspect(ds)
-        classify_landform(ds)
-                
-        ds.to_netcdf("test.nc")
 
+
+        # split into 4 tiles now
+        lats_ix = np.arange(len(ds['lat'].values))
+        lons_ix = np.arange(len(ds['lon'].values))
+        
+        lats = [x.tolist() for x in np.array_split(lats_ix, 2)]
+        lons = [x.tolist() for x in np.array_split(lons_ix, 2)]
+
+        # if we have an uneven length of split arrays (srtm1 data with 3601 px)
+        if len(lats[0]) != len(lats[1]):
+            lats[1] = [lats[0][-1]] + lats[1]
+
+        if len(lons[0]) != len(lons[1]):
+            lons[1] = [lons[0][-1]] + lons[1]
+
+        # split into 4 tiles [0.5x0.5 deg]
+        ds1 = ds[dict(lat=lats[0], lon=lons[0])]
+        ds2 = ds[dict(lat=lats[0], lon=lons[1])]
+        ds3 = ds[dict(lat=lats[1], lon=lons[0])]
+        ds4 = ds[dict(lat=lats[1], lon=lons[1])]
+
+        def get_center_coord(ds):
+            """Return the (lon, lat) of dataset (center)"""
+            lat_c = min(ds.lat.values) + (max(ds.lat.values) - min(ds.lat.values)) * 0.5
+            lon_c = min(ds.lon.values) + (max(ds.lon.values) - min(ds.lon.values)) * 0.5
+            return (lon_c, lat_c)
+        
+        def convert_float_coord_to_string(coord, p=2):
+            lon = round(coord[0], p)
+            lat = round(coord[1], p)
+            print coord
+            LA, LO = 'n', 'e'
+            if lat < 0: LA = 's'
+            if lon < 0: LO = 'w'
+            lat_s = "%.2f" % round(abs(lat),2)
+            lon_s = "%.2f" % round(abs(lon),2)
+            print lon_s, lat_s
+            coord_s = '%s%s%s%s' % (LA, lat_s.zfill(p+3), LO, lon_s.zfill(p+4))
+            return coord_s
+            
+        
+        for ds_i in [ds1, ds2, ds3, ds4]:
+            lon, lat = get_center_coord(ds_i)
+            
+            # reclass
+            classify_aspect(ds_i)
+            classify_landform(ds_i)
+            
+            # TODO: compose final landform units based on elevation intervals + landform_class
+            
+            ds_i.to_netcdf("processed/srtm1_processed_%s.nc" % convert_float_coord_to_string((lon,lat)))
+        
         exit()
-        DEMMASK = np.ma.masked_where( (DEM == DNODATA), np.ones_like(DEM))
-
-        # secondary masks (are merged with the water mask of srtm1_masked)
-        ASPMASK = np.where(ASPECT2 < 0, 1, 0) * np.where(DEMMASK.filled(NODATA) == NODATA, 1, 0)
-        SLOMASK = np.where(SLOPE < 0, 1, 0) # * np.where(DEMMASK.filled(NODATA) == NODATA, 1, 0)
-        LFMASK  = np.where(LF < 0, 1, 0) * np.where(DEMMASK.filled(NODATA) == NODATA, 1, 0)
-
-        # mask with secondary masks
-        DEM0 = np.ma.masked_where( DEM == DNODATA, DEM)
-        LF0  = np.ma.masked_where( LFMASK == 1, LF)
-        SLO0 = np.ma.masked_where( SLOMASK == 1, SLOPE)
-        ASP0 = np.ma.masked_where( ASPMASK == 1, ASPECT2)
-
-        # calculate new landform code
-        LF0B    = np.ma.where(((ASP0.filled(-1) > 0) & (np.in1d(LF0, [2,3,5]).reshape(LF0.shape))), (LF0 * 10) + ASP0.filled(-1), LF0 * 10)
-
-        # split into 1x1 into 0.5x0.5 tiles
-
-        for t in range(4):
-
-            # reset output lists
-            slopes     = []
-            elevations = []
-
-            #print 'subset %d -------' % i
-            if t == 0:
-                print LF.shape
-                LF    = LF0[0:1801,0:1801]
-                SLOPE = SLO0[0:1801,0:1801]
-                DEM   = DEM0[0:1801,0:1801]
-                LFB   = LF0B[0:1801,0:1801]
-                AS    = ASP0[0:1801,0:1801]
-
-                print LFB.shape
-
-                lat = blat + 0.75; lon =  blon + 0.25
-            if t == 1: 
-                LF    = LF0[0:1801,1800:]
-                SLOPE = SLO0[0:1801,1800:]
-                DEM   = DEM0[0:1801,1800:]
-                LFB   = LF0B[0:1801,1800:]
-                AS    = ASP0[0:1801,1800:]
-
-                print LFB.shape
-
-                lat = blat + 0.75; lon =  blon + 0.75
-            if t == 2: 
-                LF    = LF0[1800:,0:1801]
-                SLOPE = SLO0[1800:,0:1801]
-                DEM   = DEM0[1800:,0:1801]
-                LFB   = LF0B[1800:,0:1801]
-                AS    = ASP0[1800:,0:1801]
-
-                print LFB.shape
-
-                lat = blat + 0.25; lon =  blon + 0.25
-            if t == 3: 
-                LF    = LF0[1800:,1800:]
-                SLOPE = SLO0[1800:,1800:]
-                DEM   = DEM0[1800:,1800:]
-                LFB   = LF0B[1800:,1800:]
-                AS    = ASP0[1800:,1800:]
-
-                print LFB.shape
-
-                lat = blat + 0.25; lon =  blon + 0.75
-
-            # add dem mask to all arrays
-            _mask = np.ma.getmask(DEM)
-            if np.ndim(_mask) != 0:
-                SLOPE[_mask] = np.ma.masked
-                LFB[_mask] = np.ma.masked
-                AS[_mask] = np.ma.masked
-                LF[_mask] = np.ma.masked
-
-            # create netcdf
-            ds = xr.Dataset()
-            foutname = 'netcdfs_%s/' % TYPE + rename_lat_lon(lat, lon, TYPE)
-            
-            Dunits = {'slope': 'degree', 'elevation': 'm', 'landform': '-', 'aspect': '-'}
-            Dlname = {'slope': 'Slope',
-                      'elevation': 'Elevation a.s.l.',
-                      'landform': 'Landfrom unit',
-                      'aspect': 'Aspect'}
-
-            LFC = copy.deepcopy(LFB)
-
-            LATS = np.linspace(0.25,-0.25,1801) + lat
-            LONS = np.linspace(-0.25,0.25,1801) + lon
-
-            # ---
-            for el_cnt, (lower, upper) in enumerate(zip(ele_breaks[0:-1], ele_breaks[1:])):
-                el_mask = np.ma.where((DEM >= lower) & (DEM < upper ), True, False)
-
-                #print el_cnt, np.ma.sum(el_mask)
-                LFC = np.ma.where(el_mask == True, LFB + (el_cnt+1)*100, LFC)
-
-            # dump to netcdf
-            for name, da in zip(['aspect', 'slope', 'elevation', 'landform'],
-                                [AS, SLOPE, DEM, LFC]):
-
-                # extra mask apply (make sure we do not get dodgy slopes
-                
-                #_mask = np.ma.getmask(DEM)
-                #if np.ndim(_mask) != 0:
-                #    da[_mask] = np.ma.masked
-
-                da = xr.DataArray(da[:].filled(NODATA),
-                                  name=name,
-                                  coords=[('lat', LATS[:]), ('lon', LONS[:])])
-                da.attrs['units'] = Dunits[name]
-                da.attrs['long_name'] = Dlname[name]
-                da.attrs['missing_value'] = NODATA
-                da.attrs['_FillValue'] = NODATA
-                ds[name] = da
-            
-            ds.to_netcdf(foutname, format='NETCDF4_CLASSIC')
-
+        REMOVE_WHENFIXED = False
+        if REMOVE_WHENFIXED:
 
             # calc avg. slope for landform
             if DEM.mask.all():
