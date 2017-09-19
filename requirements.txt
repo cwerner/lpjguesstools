@@ -1,3 +1,6 @@
 # Dev/Deployment
 param
 pyyaml
+fiona
+rasterio>=1.0a9
+xarray>=0.9.6

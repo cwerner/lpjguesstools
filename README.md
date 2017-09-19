@@ -1,5 +1,5 @@
-LPJ-GUESS 4 output postprocessor to netCDF format
-======================================================
+LPJGUESSTOOLS: LPJ-GUESS4 pre- and postprocessing tools
+=======================================================
 
 version number: 0.0.1 author: Christian Werner
 (<christian.werner@senckenberg.de>)
@@ -7,8 +7,9 @@ version number: 0.0.1 author: Christian Werner
 Overview
 --------
 
-This package converts LPJ-GUESS 4 output to netCDF files for selected
-variables. Currently used for EarthShape project, but in general
+This package bundles a set of helper scripts. For now, these include a script to produce
+LPJ-GUESS 4 (subpixel) input files and a converter to produce netcdf files from model output.
+Currently used for EarthShape project, but in general
 applicable for all LPJ-GUESS simulations.
 
 Installation / Usage
@@ -18,13 +19,13 @@ To install use pip:
 
 ::
 
-    $ pip install lpjguess2nc
+    $ pip install lpjguesstools
 
 Or clone the repo:
 
 ::
 
-    $ git clone https://gitlab.com/cw_code/lpjguess2nc.git
+    $ git clone https://gitlab.com/cw_code/lpjguesstools.git
     $ python setup.py install
 
 Contributing
@@ -32,16 +33,16 @@ Contributing
 
 TBD
 
-Example
--------
+Example (lgt_convert)
+---------------------
 
-lpjguess2nc -r REFDATA.nc,cid -y 1990-2014 -o output.nc lpjguess\_results\_dir
+lgt_convert -r REFDATA.nc,cid -y 1990-2014 -o output.nc lpjguess\_results\_dir
 lpjguess\_netcdf\_dir
 
 Usage
 -----
 
-    usage: lpjguess2nc [-h] [-c MYCONF] [-l PATTERN] [-o OUTFILE] [-r FILE,VAR]
+    usage: lgt_convert [-h] [-c MYCONF] [-l PATTERN] [-o OUTFILE] [-r FILE,VAR]
                        [-S] [-v] [-y YEARS]
                        indir outdir
 

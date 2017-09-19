@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""lpjguess2nc.extra: extra module within the lpjguess2nc package."""
+"""lpjguesstools.extra: extra module within the lpjguesstools package."""
 
 import logging
 import os
@@ -25,20 +25,20 @@ def _copy_default_config():
     #TODO somewhat redundand, merge with set_config code
 
     fname = resource_filename(
-        Requirement.parse("lpjguess2nc"), "lpjguess2nc/data/lpjguess2nc.conf")
+        Requirement.parse("lpjguesstools"), "lpjguesstools/data/lgt_convert.conf")
     shutil.copyfile(fname, os.path.join(
-        os.path.expanduser("~"), "lpjguess2nc.conf"))
+        os.path.expanduser("~"), "lgt_convert.conf"))
 
 
 def _find_config():
     """ look for cfgFile in the default locations """
     cfgFile = None
-    locations = [os.curdir, os.path.expanduser("~"), "/etc/lpjguess2nc",
-                 os.environ.get("LPJGUESSC2NC_CONF")]
+    locations = [os.curdir, os.path.expanduser("~"), "/etc/lpjguesstools",
+                 os.environ.get("LPJGUESSTOOLS_CONF")]
     locations = [x for x in locations if x is not None]
 
     for loc in locations:
-        f = os.path.join(loc, "lpjguess2nc.conf")
+        f = os.path.join(loc, "lgt_convert.conf")
         if os.path.isfile(f):
             cfgFile = f
             break
@@ -129,7 +129,7 @@ def get_config(cfgFile=None):
 
 def set_config(cfg):
     """ write cfg file to user dir """
-    fname = os.path.join(os.path.expanduser("~"), 'lpjguess2nc.conf')
+    fname = os.path.join(os.path.expanduser("~"), 'lgt_convert.conf')
     with open(fname, 'w') as f:
         f.write(yaml.dump(cfg, default_flow_style=False))
 
