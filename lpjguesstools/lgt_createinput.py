@@ -27,6 +27,7 @@ from collections import Counter, OrderedDict
 import copy
 import datetime
 import glob 
+import logging
 import math
 import numpy as np
 import os
@@ -35,7 +36,10 @@ import string
 import xarray as xr
 
 from _geoprocessing import compute_spatial_dataset, classify_aspect, \
-                           classify_landform, get_center_coord
+                           classify_landform, get_center_coord, \
+                           split_srtm1_dataset, get_global_attr
+
+log = logging.getLogger(__name__)
 
 # consts and lookups
 NODATA = -9999
@@ -99,83 +103,116 @@ def define_landform_classes(step, limit):
     return (lf_full_set, ele_breaks)
 
 
+def tile_already_processed(fname, TILESTORE_PATH):
+    """Check if the tile exists."""
+    existing_tiles = glob.glob(os.path.join(TILESTORE_PATH, '*.nc'))
+    #existing_tiles = [os.path.basename(x) for x in glob.glob(glob_string)]
+    
+    for existing_tile in existing_tiles:
+        print existing_tile
+        source_attr = get_global_attr(xr.open_dataset(existing_tile), 'source')
+        if source_attr != None:
+            # TODO: add second check (version?)
+            if fname == source_attr:
+                return True
+    return False    
+
+
+def match_watermask_shpfile(glob_string):
+    """Check if the generated shp glob_string exists."""
+    if len(glob.glob(glob_string)) == 0:
+        shp = None
+    elif len(glob.glob(glob_string)) == 1:
+        shp = glob.glob(glob_string)[0]
+    else:
+        log.error("Too many shape files.")
+    return shp
+
+
 def compute_landforms(glob_string, shp_mask_dir):
     """Compute landform units based on elevation, slope, aspect and tpi classes."""
 
+    # config settings (that eventually should go to cli or conf file)
+    TILESTORE_PATH = "processed"        # location for final 0.5x0.5 deg tiles
+    CUTOFF = 1.0                        # min percent covered by LF to be considered
+    
+    dem_files = sorted(glob.glob(glob_string))
 
-    CUTOFF = 1.0        # min percent landmass for LF to be considered
-    
-    # Rules:
-    # - slope and aspect calc should be conducted on water-clipped grid
-    # - tpi calculations should be carried out on original data (since they)
-    #   involve a potentially larger kernel (otherwise we have NODATA increase)
+    # define the final landform classes (now with elevation brackets)
+    lf_classes, lf_ele_levels = define_landform_classes(400, 6000)
 
-    #tiles = glob.glob('srtm1_filled/*.tif')
-    tiles = sorted(glob.glob(glob_string))
-    
-    # create list of shp_mask files
-    files = []
-    
-    for tile in tiles:
-        fname = os.path.basename(tile)
-        fdir  = os.path.dirname(tile)
+    for dem_file in dem_files:
+        fname = os.path.basename(dem_file)
+        fdir  = os.path.dirname(dem_file)
         str_lat = fname[:3]
         str_lon = fname[4:8]
         
-        # create shp file name
-        shp_file = glob.glob(shp_mask_dir + '/' + str_lon + str_lat + '*.shp')
-        if len(shp_file) == 0:
-            tile = (tile, None)
-        elif len(shp_file) == 1:
-            tile = (tile, shp_file[0])
+        # if tiles don't exist process them
+        if not tile_already_processed(fname, TILESTORE_PATH):        
+            log.info('processing: %s (%s)' % (dem_file, datetime.datetime.now()))
+
+            shp_glob_string = shp_mask_dir + '/' + str_lon + str_lat + '*.shp'
+            matched_shp_file = match_watermask_shpfile(shp_glob_string)
+            
+            ds_srtm1 = compute_spatial_dataset(dem_file, fname_shp=matched_shp_file)
+            tiles = split_srtm1_dataset(ds_srtm1)
+
+            for tile in tiles:
+                # reclass
+                classify_aspect(tile)
+                classify_landform(tile, elevation_levels=lf_ele_levels)            
+                
+                # store file in tilestore
+                lon, lat = get_center_coord(tile)
+                lonlat_string = convert_float_coord_to_string((lon,lat))
+                tile.to_netcdf(os.path.join(TILESTORE_PATH, \
+                               "srtm1_processed_%s.nc" % lonlat_string)) 
+                               
+                               
+    # section 2
+    def get_tile_summary(ds, cutoff=0):
+        """Compute the fractional cover of the landforms in this tile."""
+        
+        unique, counts = np.unique(ds['landform_class'].to_masked_array().astype('i'), return_counts=True)
+        print unique
+        print counts
+        remove_ix = np.where(unique == NODATA)
+        unique = np.delete(unique, remove_ix)
+        counts = np.delete(counts, remove_ix)
+        total_valid = float(np.sum(counts))
+        
+        df = pd.DataFrame({'lf_id': unique, 'cells': counts})
+        df['frac'] = (df['cells'] / df['cells'].sum())*100
+
+        df = df[df['frac'] >= cutoff]
+        df['frac_scaled'] = (df['cells'] / df['cells'].sum())*100
+        df = df.sort_values(by='cells', ascending=False)
+
+        print df
+        return df
+    
+    tiles = sorted(glob.glob(os.path.join(TILESTORE_PATH, '*.nc')))
+    
+
+
+    def tile_files_compatible(files):
+        """Get global attribute from all tile netcdf files and check
+        they are the same.
+        """
+        x = [get_global_attr(xr.open_dataset(x), 'landform_elevation_step') for x in files]
+        if all(x):
+            if x[0] != None:
+                return True
         else:
-            log.error("Too many shape files.")
-
-        print 'processing: ', tile, '(', datetime.datetime.now(), ')'
-
-        # SWITCH FOR DEBUGGING
-        #ds = compute_spatial_dataset(tile[0], fname_shp=tile[1])
-        #ds.to_netcdf('srtm1_dump_nc/%s.nc' % os.path.basename(tile[0])[:-4])
-
-        ds = xr.open_dataset("srtm1_dump_nc/s27_w069_1arc_v3.nc", decode_cf=False)
-
-
-        # split into 4 tiles now
-        lats_ix = np.arange(len(ds['lat'].values))
-        lons_ix = np.arange(len(ds['lon'].values))
-        
-        lats = [x.tolist() for x in np.array_split(lats_ix, 2)]
-        lons = [x.tolist() for x in np.array_split(lons_ix, 2)]
-
-        # if we have an uneven length of split arrays (srtm1 data with 3601 px)
-        if len(lats[0]) != len(lats[1]):
-            lats[1] = [lats[0][-1]] + lats[1]
-
-        if len(lons[0]) != len(lons[1]):
-            lons[1] = [lons[0][-1]] + lons[1]
-
-        # split into 4 tiles [0.5x0.5 deg]
-        ds1 = ds[dict(lat=lats[0], lon=lons[0])]
-        ds2 = ds[dict(lat=lats[0], lon=lons[1])]
-        ds3 = ds[dict(lat=lats[1], lon=lons[0])]
-        ds4 = ds[dict(lat=lats[1], lon=lons[1])]
-
-        # define the final landform classes (now with elevation brackets)
-        lf_classes, lf_ele_levels = define_landform_classes(400, 6000)
-        
-        # operate on tiled datasets
-        for ds_i in [ds1, ds2, ds3, ds4]:
-            lon, lat = get_center_coord(ds_i)
+            return False
+    
+    if not tile_files_compatible(tiles):
+        log.error('Tile files in %s are not compatible.' % TILESTORE_PATH)
             
-            # reclass
-            classify_aspect(ds_i)
-            classify_landform(ds_i, elevation_levels=lf_ele_levels)
+    for tile in tiles:
+        ds = xr.open_dataset(tile, decode_cf=False)
+        lf_stats = get_tile_summary(ds, cutoff=CUTOFF)
 
-            
-            # TODO: compose final landform units based on elevation intervals + landform_class            
-            ds_i.to_netcdf("processed/srtm1_processed_%s.nc" % convert_float_coord_to_string((lon,lat)))
-        
-        
         exit()
         REMOVE_WHENFIXED = False
         if REMOVE_WHENFIXED:
@@ -500,8 +537,18 @@ def create_gridlist(ds):
 def main():
     """Main Script."""    
     
+    SRTMSTORE_STRING = "srtm1_filled/*.tif"
+    WATERMASKSTORE_PATH = "srtm1_shp_mask"
+    
+    # section 1:
+    # compute the 0.5x0.5 deg tiles
     print "computing landforms"
-    compute_landforms("srtm1_filled/*.tif", "srtm1_shp_mask")
+    compute_landforms(SRTMSTORE_STRING, WATERMASKSTORE_PATH)
+    
+    # section 2:
+    # build the actual LPJ-Guess 4.0 subpixel input files
+    # ...
+    exit()
     
     # source files
     soilref = os.path.join('soil', 'GLOBAL_WISESOIL_DOM_05deg.nc')

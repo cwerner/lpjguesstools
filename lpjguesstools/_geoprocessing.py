@@ -9,6 +9,7 @@ import rasterio
 from rasterio.warp import calculate_default_transform
 from rasterio.enums import Resampling
 from rasterio.mask import mask
+import os
 import scipy
 import xarray as xr
 
@@ -74,12 +75,13 @@ def calc_aspect(Sx, Sy):
     aspect[aspect==360] = 0
     return aspect
 
+
 def calc_slope(Sx, Sy):
     """Calculate slope given X and Y slope components (unit: deg)."""
     return np.rad2deg(np.sqrt(Sx**2 + Sy**2))
 
 
-def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None):
+def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source=None):
     """Create a datasets from dem, dem_mask, slope and aspect."""
     
     # if a rasterio transfrom info is passed
@@ -104,8 +106,11 @@ def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None):
     ds['aspect'] = (xr.DataArray(aspect, coords=COORDS, dims=DIMS) * ds['mask']).fillna(NODATA)
     ds['landform'] = (xr.DataArray(landform, coords=COORDS, dims=DIMS) * ds['mask']).fillna(NODATA)
     
-    for v in ['dem', 'mask', 'slope', 'aspect', 'landform']:
+    for v in ['dem', 'slope', 'aspect', 'landform']:
         ds[v].attrs.update(defaultAttrsDA)
+    
+    if source != None:
+        set_global_attr(ds, 'source', source)
     return ds
 
 
@@ -132,7 +137,6 @@ def compute_spatial_dataset(fname, fname_shp=None):
         # create a in-mem copy of input dem (4 bands: dem, mask, slope, aspect)
         with rasterio.io.MemoryFile() as memfile_geo1:
             with memfile_geo1.open(**msrc_kwargs) as ds_geo1:
-                print ds_geo1.shape
                 ds_geo1.write(dem.astype('Float64'), 1)                 # dem
                 ds_geo1.write(dem_mask.astype('Float64'), 2)            # dem_mask
                 ds_geo1.write(np.zeros_like(dem_mask, 'Float64'), 3)    # slope
@@ -239,7 +243,8 @@ def compute_spatial_dataset(fname, fname_shp=None):
                                 landform = np.ma.masked_array(ds_geo2.read(5), mask=~dem_mask)
 
     # create dataset    
-    ds = create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=msrc_kwargs)
+    ds = create_dem_dataset(dem, dem_mask, slope, aspect, landform, 
+                            info=msrc_kwargs, source=os.path.basename(fname))
     
     return ds
 
@@ -290,6 +295,43 @@ def classify_landform(ds, elevation_levels=[]):
     ds['landform_class'] = xr.full_like(ds['landform'], NODATA)
     ds['landform_class'][:] = lf_cl.filled(NODATA)
     ds['landform_class'].attrs.update(defaultAttrsDA)
-    
-    
     return ds
+
+
+def split_srtm1_dataset(ds):
+    """Split a 1arc SRTM1 dataset into 4 0.5x0.5 tiles."""
+    lats_ix = np.arange(len(ds['lat'].values))
+    lons_ix = np.arange(len(ds['lon'].values))
+    lats = [x.tolist() for x in np.array_split(lats_ix, 2)]
+    lons = [x.tolist() for x in np.array_split(lons_ix, 2)]
+
+    # if we have an uneven length of split arrays (srtm1 data with 3601 px)
+    if len(lats[0]) != len(lats[1]):
+        lats[1] = [lats[0][-1]] + lats[1]
+
+    if len(lons[0]) != len(lons[1]):
+        lons[1] = [lons[0][-1]] + lons[1]
+
+    # split into 4 tiles [0.5x0.5 deg]
+    ds1 = ds[dict(lat=lats[0], lon=lons[0])]
+    ds2 = ds[dict(lat=lats[0], lon=lons[1])]
+    ds3 = ds[dict(lat=lats[1], lon=lons[0])]
+    ds4 = ds[dict(lat=lats[1], lon=lons[1])]
+    return [ds1, ds2, ds3, ds4]
+
+
+def get_global_attr(ds, attr_name):
+    """Get the global dataset attribute."""
+    if ds.attrs.has_key(attr_name):
+        return ds.attrs[attr_name]
+    else:
+        return None
+
+
+def set_global_attr(ds, attr_name, value, overwrite=False):
+    """Set the global dataset attribute."""
+    if ds.attrs.has_key(attr_name) and overwrite==False:
+        log.error("Trying to set attr %s to %s (it already exists)." % (
+                  attr_name, str(value)))
+    else:
+        ds.attrs[attr_name] = value
