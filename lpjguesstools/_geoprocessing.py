@@ -100,13 +100,13 @@ def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source
         DIMS=['dim_0', 'dim_1']
     
     ds = xr.Dataset()
-    ds['dem'] = xr.DataArray(dem, coords=COORDS, dims=DIMS).fillna(NODATA)
+    ds['elevation'] = xr.DataArray(dem, coords=COORDS, dims=DIMS).fillna(NODATA)
     ds['mask'] = xr.DataArray(dem_mask.astype('bool'), coords=COORDS, dims=DIMS)
     ds['slope'] = (xr.DataArray(slope, coords=COORDS, dims=DIMS) * ds['mask']).fillna(NODATA)
     ds['aspect'] = (xr.DataArray(aspect, coords=COORDS, dims=DIMS) * ds['mask']).fillna(NODATA)
     ds['landform'] = (xr.DataArray(landform, coords=COORDS, dims=DIMS) * ds['mask']).fillna(NODATA)
     
-    for v in ['dem', 'slope', 'aspect', 'landform']:
+    for v in ['elevation', 'slope', 'aspect', 'landform']:
         ds[v].attrs.update(defaultAttrsDA)
     
     if source != None:
@@ -258,7 +258,10 @@ def get_center_coord(ds):
         
 
 def classify_aspect(ds):
-    """Classify dataarray from continuous aspect to 1,2,3,4."""        
+    """Classify dataarray from continuous aspect to 1,2,3,4."""
+    
+    # TODO: Check if we need only northern and southern aspect classes for
+    #       implementation     
     aspect = ds['aspect'].to_masked_array()
     asp_cl = ds['aspect'].to_masked_array()
     asp_cl[(aspect >= 315) | (aspect <  45)] = 1    # North
@@ -284,10 +287,10 @@ def classify_landform(ds, elevation_levels=[]):
     lf_cl = np.ma.masked_where(ds['mask'] == 0, lf_cl)
     
     # if we have elevation levels subdivide the landform classes
-    ele = ds['dem'].to_masked_array()
+    ele = ds['elevation'].to_masked_array()
     if len(elevation_levels) > 0:
         # add global elevation step attribute (second element, first is lower boundary)
-        ds.attrs['landform_elevation_step'] = "%s" % elevation_levels[1]
+        set_global_attr(ds, 'landform_elevation_step', "%s" % elevation_levels[1])
 
         for i, (lb, ub) in enumerate(zip(elevation_levels[:-1], elevation_levels[1:])):
             lf_cl = np.ma.where(((ele >= lb) & (ele < ub)), lf_cl + (i+1) * 100, lf_cl)   

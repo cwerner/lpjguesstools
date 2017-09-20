@@ -109,7 +109,6 @@ def tile_already_processed(fname, TILESTORE_PATH):
     #existing_tiles = [os.path.basename(x) for x in glob.glob(glob_string)]
     
     for existing_tile in existing_tiles:
-        print existing_tile
         source_attr = get_global_attr(xr.open_dataset(existing_tile), 'source')
         if source_attr != None:
             # TODO: add second check (version?)
@@ -186,20 +185,18 @@ def compute_landforms(glob_string, shp_mask_dir):
         df['frac_scaled'] = (df['cells'] / df['cells'].sum())*100
         
         # also get lf-avg of elevation and slope
-        df['dem'] = -1
+        df['elevation'] = -1
         df['slope'] = -1
 
         a_lf = ds['landform_class'].to_masked_array()
         
         # calculate the avg. elevation and slope in landforms
         for i, r in df.iterrows():
-            print r['lf_id'], type(r['lf_id'])
-            
             ix = a_lf == int(r['lf_id'])
             lf_slope = ds['slope'].values[ix].mean()
-            lf_elevation = ds['dem'].values[ix].mean()
+            lf_elevation = ds['elevation'].values[ix].mean()
             df.loc[i, 'slope'] = lf_slope
-            df.loc[i, 'dem'] = lf_elevation
+            df.loc[i, 'elevation'] = lf_elevation
             
         #df = df.sort_values(by='cells', ascending=False)
         df.reset_index(inplace=True)
@@ -235,7 +232,7 @@ def compute_landforms(glob_string, shp_mask_dir):
 
     df = pd.concat(tiles_stats)
 
-    for col in ['frac_scaled', 'slope', 'dem']:
+    for col in ['frac_scaled', 'slope', 'elevation']:
         dfx = df[col]
         dfx = dfx.unstack(level=-1, fill_value=-9999)
         
@@ -247,7 +244,7 @@ def compute_landforms(glob_string, shp_mask_dir):
         # cleanup (move lon, lat to front, drop coord col)
         dfx.drop('coord', axis=1, inplace=True)
         latlon_cols = ['lon', 'lat']
-        new_col_order = ['lon', 'lat'] + \
+        new_col_order = latlon_cols + \
                         [x for x in dfx.columns.tolist() if x not in latlon_cols]
         dfx = dfx[new_col_order]
         print dfx
