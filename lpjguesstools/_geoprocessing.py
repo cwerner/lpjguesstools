@@ -86,11 +86,12 @@ def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source
     
     # if a rasterio transfrom info is passed
     if info != None:
-        dx, _, leftc, _, dy, lowerc, _, _, _ = info['transform']
+        dx, _, leftc, _, dy, upperc, _, _, _ = info['transform']
         cellsx = info['width']
         cellsy = info['height']
+        lowerc = upperc - (cellsy*abs(dy))
         lons = np.linspace(leftc, leftc+((cellsx+1)*dx), cellsx)
-        lats = np.linspace(lowerc, lowerc+((cellsy+1)*-dy), cellsy)
+        lats = np.linspace(lowerc, lowerc+((cellsy+1)*abs(dy)), cellsy)
         
         COORDS = dict(lat=lats[::-1], lon=lons)
         DIMS = ['lat', 'lon']
@@ -122,26 +123,30 @@ def compute_spatial_dataset(fname, fname_shp=None):
     with rasterio.open(fname) as src:    
         msrc_kwargs = src.meta.copy()
         msrc_kwargs.update(count=5)
-        msrc_kwargs.update(dtype='Float64')
+        msrc_kwargs.update(dtype='float64')
         
-        # create water mask from shapefile and dem
-        dem = src.read(1)
+        # read dem (as maskedarray) and create land mask (with gtiff nodata if present)
+        dem = src.read(1, masked=True)
+        dem_mask = ~np.ma.getmaskarray(dem)
+        
         if fname_shp != None:
+            log.info("Masking water bodies")
             with fiona.open(fname_shp) as shp:
                 geoms = [feature["geometry"] for feature in shp]
-                dem_mask, out_transform = rasterio.mask.mask(src, geoms, crop=False, invert=True)
-                dem_mask = dem_mask.squeeze()
+                dmask, _ = rasterio.mask.mask(src, geoms, nodata=0, crop=False, invert=True)
+                dmask = np.where(dmask > 0, 1, 0)
+                dem_mask = dem_mask * dmask.squeeze()
         else:
-            dem_mask = np.zeros_like(dem)
+            log.warn("No water mask shapefile found: %s" % fname_shp)
             
         # create a in-mem copy of input dem (4 bands: dem, mask, slope, aspect)
         with rasterio.io.MemoryFile() as memfile_geo1:
             with memfile_geo1.open(**msrc_kwargs) as ds_geo1:
-                ds_geo1.write(dem.astype('Float64'), 1)                 # dem
-                ds_geo1.write(dem_mask.astype('Float64'), 2)            # dem_mask
-                ds_geo1.write(np.zeros_like(dem_mask, 'Float64'), 3)    # slope
-                ds_geo1.write(np.zeros_like(dem_mask, 'Float64'), 4)    # aspect
-                ds_geo1.write(np.zeros_like(dem_mask, 'Float64'), 5)    # tpi300
+                ds_geo1.write(dem.astype('float64'), 1)                 # dem
+                ds_geo1.write(dem_mask.astype('float64'), 2)            # dem_mask
+                ds_geo1.write(np.zeros_like(dem_mask, 'float64'), 3)    # slope
+                ds_geo1.write(np.zeros_like(dem_mask, 'float64'), 4)    # aspect
+                ds_geo1.write(np.zeros_like(dem_mask, 'float64'), 5)    # tpi300
                 
                 # derive utm projection (get center coordinate of tile)
                 lon, lat = ds_geo1.transform * (ds_geo1.width * 0.5, ds_geo1.height * 0.5)
@@ -165,7 +170,7 @@ def compute_spatial_dataset(fname, fname_shp=None):
                 with rasterio.io.MemoryFile() as memfile_utm:
                     with memfile_utm.open(**kwargs) as ds_utm:
                         for i in range(1, ds_geo1.count + 1):
-                            dst_array = np.empty((height, width), dtype='Float64')
+                            dst_array = np.empty((height, width), dtype='float64')
                                 
                             rasterio.warp.reproject(
                                 source=ds_geo1.read(i),
@@ -182,12 +187,18 @@ def compute_spatial_dataset(fname, fname_shp=None):
                         # buffer dem at mask edge
                         dem  = ds_utm.read(1)
                         dem_mask = ds_utm.read(2)
-                        
-                        # gapfill data
-                        indices = scipy.ndimage.distance_transform_edt(np.invert(dem_mask.astype('bool')), 
-                            return_distances=False, 
-                            return_indices=True)
-                        dem_filled = dem[tuple(indices)]
+
+                        if dem_mask.sum() == 0:
+                            log.info('We have ZERO gaps... Proceed.')
+                            dem_filled = dem.copy()                        
+                        else:
+                            log.info('We have gaps... Filling.')
+                            # gapfill data
+                            indices = scipy.ndimage.distance_transform_edt(np.invert(dem_mask.astype('bool')), 
+                                return_distances=False, 
+                                return_indices=True)
+                            dem_filled = dem[tuple(indices)]
+
                         
                         # calculate slope & aspect
                         dx, dy = affine[0], affine[4]
@@ -199,12 +210,12 @@ def compute_spatial_dataset(fname, fname_shp=None):
                         aspect = calc_aspect(Sx, Sy)
                         
                         # calculate tpi (now in utm)
-                        landform = calculate_tpi(dem, slope, 300, res=dx)
+                        landform = calculate_tpi(dem_filled, slope, 300, res=dx)
 
                         # write slope, aspect to ds_utm
-                        ds_utm.write(slope.astype('Float64'), 3)
-                        ds_utm.write(aspect.astype('Float64'), 4)
-                        ds_utm.write(landform.astype('Float64'), 5)
+                        ds_utm.write(slope.astype('float64'), 3)
+                        ds_utm.write(aspect.astype('float64'), 4)
+                        ds_utm.write(landform.astype('float64'), 5)
                         
                         # transform back to LatLon
                         with rasterio.io.MemoryFile() as memfile_geo2:
@@ -241,6 +252,12 @@ def compute_spatial_dataset(fname, fname_shp=None):
                                 slope = np.ma.masked_array(ds_geo2.read(3), mask=~dem_mask)
                                 aspect = np.ma.masked_array(ds_geo2.read(4), mask=~dem_mask)
                                 landform = np.ma.masked_array(ds_geo2.read(5), mask=~dem_mask)
+                                
+                                #log.info("Dumping GTiff 1arc file for debugging.")
+                                #print msrc_kwargs
+                                #with rasterio.open('test.tiff', 'w', **msrc_kwargs) as dst:
+                                #    for i in range(1,6):
+                                #        dst.write(ds_geo2.read(i), i)
 
     # create dataset    
     ds = create_dem_dataset(dem, dem_mask, slope, aspect, landform, 
@@ -305,8 +322,7 @@ def is_empty_tile(ds):
     """Check if this tile has no data (sum(mask)==0)."""
     if ds['mask'].sum() == 0:
         return True
-    else:
-        return False
+    return False
 
 
 def split_srtm1_dataset(ds):

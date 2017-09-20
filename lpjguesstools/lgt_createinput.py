@@ -128,6 +128,69 @@ def match_watermask_shpfile(glob_string):
     return shp
 
 
+def get_tile_summary(ds, cutoff=0):
+    """Compute the fractional cover of the landforms in this tile."""
+    
+    unique, counts = np.unique(ds['landform_class'].to_masked_array().astype('i'), return_counts=True)
+    remove_ix = np.where(unique == NODATA)
+    unique = np.delete(unique, remove_ix)
+    counts = np.delete(counts, remove_ix)
+    total_valid = float(np.sum(counts))
+    
+    df = pd.DataFrame({'lf_id': unique, 'cells': counts})
+    df['frac'] = (df['cells'] / df['cells'].sum())*100
+
+    df = df[df['frac'] >= cutoff]
+    df['frac_scaled'] = (df['cells'] / df['cells'].sum())*100
+    
+    # also get lf-avg of elevation and slope
+    df['elevation'] = -1
+    df['slope'] = -1
+
+    a_lf = ds['landform_class'].to_masked_array()
+    
+    # calculate the avg. elevation and slope in landforms
+    for i, r in df.iterrows():
+        ix = a_lf == int(r['lf_id'])
+        lf_slope = ds['slope'].values[ix].mean()
+        lf_elevation = ds['elevation'].values[ix].mean()
+        df.loc[i, 'slope'] = lf_slope
+        df.loc[i, 'elevation'] = lf_elevation
+        
+    #df = df.sort_values(by='cells', ascending=False)
+    df.reset_index(inplace=True)
+    return df
+
+
+def tile_files_compatible(files):
+    """Get global attribute from all tile netcdf files and check
+    they are the same.
+    """
+    x = [get_global_attr(xr.open_dataset(x), 'landform_elevation_step') for x in files]
+    if all(x):
+        if x[0] != None:
+            return True
+    else:
+        return False
+
+
+def create_stats_table(df, var):
+    """Create a landform info table for all coords and given var."""
+    
+    df_ = df[var].unstack(level=-1, fill_value=-9999)
+    # rename columns and split coord tuple col to lon and lat col
+    df_.columns = ['lf' + str(col) for col in df_.columns]
+    df_ = df_.reset_index()
+    df_[['lon', 'lat']] = df_['coord'].apply(pd.Series)
+    
+    # cleanup (move lon, lat to front, drop coord col)
+    df_.drop('coord', axis=1, inplace=True)
+    latlon_cols = ['lon', 'lat']
+    new_col_order = latlon_cols + \
+                    [x for x in df_.columns.tolist() if x not in latlon_cols]
+    return df_[new_col_order]
+
+
 def compute_landforms(glob_string, shp_mask_dir):
     """Compute landform units based on elevation, slope, aspect and tpi classes."""
 
@@ -168,53 +231,9 @@ def compute_landforms(glob_string, shp_mask_dir):
                     tile.to_netcdf(os.path.join(TILESTORE_PATH, \
                                    "srtm1_processed_%s.nc" % lonlat_string)) 
                                
-                               
+  
     # section 2
-    def get_tile_summary(ds, cutoff=0):
-        """Compute the fractional cover of the landforms in this tile."""
-        
-        unique, counts = np.unique(ds['landform_class'].to_masked_array().astype('i'), return_counts=True)
-        remove_ix = np.where(unique == NODATA)
-        unique = np.delete(unique, remove_ix)
-        counts = np.delete(counts, remove_ix)
-        total_valid = float(np.sum(counts))
-        
-        df = pd.DataFrame({'lf_id': unique, 'cells': counts})
-        df['frac'] = (df['cells'] / df['cells'].sum())*100
-
-        df = df[df['frac'] >= cutoff]
-        df['frac_scaled'] = (df['cells'] / df['cells'].sum())*100
-        
-        # also get lf-avg of elevation and slope
-        df['elevation'] = -1
-        df['slope'] = -1
-
-        a_lf = ds['landform_class'].to_masked_array()
-        
-        # calculate the avg. elevation and slope in landforms
-        for i, r in df.iterrows():
-            ix = a_lf == int(r['lf_id'])
-            lf_slope = ds['slope'].values[ix].mean()
-            lf_elevation = ds['elevation'].values[ix].mean()
-            df.loc[i, 'slope'] = lf_slope
-            df.loc[i, 'elevation'] = lf_elevation
-            
-        #df = df.sort_values(by='cells', ascending=False)
-        df.reset_index(inplace=True)
-        return df
-    
-
-    def tile_files_compatible(files):
-        """Get global attribute from all tile netcdf files and check
-        they are the same.
-        """
-        x = [get_global_attr(xr.open_dataset(x), 'landform_elevation_step') for x in files]
-        if all(x):
-            if x[0] != None:
-                return True
-        else:
-            return False
-
+    log.info("START OF SECTION2")
     tiles = sorted(glob.glob(os.path.join(TILESTORE_PATH, '*.nc')))
     
     if not tile_files_compatible(tiles):
@@ -227,29 +246,17 @@ def compute_landforms(glob_string, shp_mask_dir):
         lon, lat = get_center_coord(ds)
         
         coords = pd.Series([(round(lon,2),round(lat,2)) for x in range(len(lf_stats))])
-        lf_stats['coord'] = coords
+        lf_stats['coord'] = coords        
         lf_stats.set_index(['coord', 'lf_id'], inplace=True)
         tiles_stats.append( lf_stats )
 
     df = pd.concat(tiles_stats)
 
-    for col in ['frac_scaled', 'slope', 'elevation']:
-        dfx = df[col]
-        dfx = dfx.unstack(level=-1, fill_value=-9999)
-        
-        # rename columns and split coord tuple col to lon and lat col
-        dfx.columns = ['lf' + str(col) for col in dfx.columns]
-        dfx = dfx.reset_index()
-        dfx[['lon', 'lat']] = dfx['coord'].apply(pd.Series)
-        
-        # cleanup (move lon, lat to front, drop coord col)
-        dfx.drop('coord', axis=1, inplace=True)
-        latlon_cols = ['lon', 'lat']
-        new_col_order = latlon_cols + \
-                        [x for x in dfx.columns.tolist() if x not in latlon_cols]
-        dfx = dfx[new_col_order]
-        print dfx
-        print '----------------'
+    frac_lf = create_stats_table(df, 'frac_scaled')
+    elev_lf = create_stats_table(df, 'elevation')
+    slope_lf = create_stats_table(df, 'slope')
+    
+    return (frac_lf, elev_lf, slope_lf)
 
 
 # ----------------- PART3 -------------------------------
@@ -489,18 +496,19 @@ def create_gridlist(ds):
 def main():
     """Main Script."""    
     
-    SRTMSTORE_STRING = "srtm1_filled/*.tif"
+    SRTMSTORE_STRING = "srtm1/*.tif"
     WATERMASKSTORE_PATH = "srtm1_shp_mask"
     
     # section 1:
     # compute the 0.5x0.5 deg tiles
     print "computing landforms"
-    compute_landforms(SRTMSTORE_STRING, WATERMASKSTORE_PATH)
+    df_frac, df_elev, df_slope = compute_landforms(SRTMSTORE_STRING, WATERMASKSTORE_PATH)
+    log.info("END OF FIRST SECTION")
+    exit(-1)
     
     # section 2:
     # build the actual LPJ-Guess 4.0 subpixel input files
     # ...
-    exit()
     
     # source files
     soilref = os.path.join('soil', 'GLOBAL_WISESOIL_DOM_05deg.nc')
