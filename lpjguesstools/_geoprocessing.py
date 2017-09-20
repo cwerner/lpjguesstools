@@ -301,6 +301,14 @@ def classify_landform(ds, elevation_levels=[]):
     return ds
 
 
+def is_empty_tile(ds):
+    """Check if this tile has no data (sum(mask)==0)."""
+    if ds['mask'].sum() == 0:
+        return True
+    else:
+        return False
+
+
 def split_srtm1_dataset(ds):
     """Split a 1arc SRTM1 dataset into 4 0.5x0.5 tiles."""
     lats_ix = np.arange(len(ds['lat'].values))
@@ -318,9 +326,18 @@ def split_srtm1_dataset(ds):
     # split into 4 tiles [0.5x0.5 deg]
     ds1 = ds[dict(lat=lats[0], lon=lons[0])]
     ds2 = ds[dict(lat=lats[0], lon=lons[1])]
-    ds3 = ds[dict(lat=lats[1], lon=lons[0])]
-    ds4 = ds[dict(lat=lats[1], lon=lons[1])]
-    return [ds1, ds2, ds3, ds4]
+    ds3 = ds[dict(lat=lats[1], lon=lons[1])]
+    ds4 = ds[dict(lat=lats[1], lon=lons[0])]
+    
+    return_tiles = []
+    for i, ds_ in enumerate([ds1, ds2, ds3, ds4]):
+        if is_empty_tile(ds_):
+            log.info("Empty tile at quadrant %d detected. Ignored." % (i+1))
+            return_tiles.append(None)
+        else:
+            return_tiles.append(ds_)
+    
+    return return_tiles
 
 
 def get_global_attr(ds, attr_name):

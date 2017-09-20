@@ -158,14 +158,15 @@ def compute_landforms(glob_string, shp_mask_dir):
 
             for tile in tiles:
                 # reclass
-                classify_aspect(tile)
-                classify_landform(tile, elevation_levels=lf_ele_levels)            
-                
-                # store file in tilestore
-                lon, lat = get_center_coord(tile)
-                lonlat_string = convert_float_coord_to_string((lon,lat))
-                tile.to_netcdf(os.path.join(TILESTORE_PATH, \
-                               "srtm1_processed_%s.nc" % lonlat_string)) 
+                if tile != None:
+                    classify_aspect(tile)
+                    classify_landform(tile, elevation_levels=lf_ele_levels)            
+                    
+                    # store file in tilestore
+                    lon, lat = get_center_coord(tile)
+                    lonlat_string = convert_float_coord_to_string((lon,lat))
+                    tile.to_netcdf(os.path.join(TILESTORE_PATH, \
+                                   "srtm1_processed_%s.nc" % lonlat_string)) 
                                
                                
     # section 2
