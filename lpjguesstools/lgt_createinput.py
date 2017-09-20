@@ -174,8 +174,6 @@ def compute_landforms(glob_string, shp_mask_dir):
         """Compute the fractional cover of the landforms in this tile."""
         
         unique, counts = np.unique(ds['landform_class'].to_masked_array().astype('i'), return_counts=True)
-        print unique
-        print counts
         remove_ix = np.where(unique == NODATA)
         unique = np.delete(unique, remove_ix)
         counts = np.delete(counts, remove_ix)
@@ -186,14 +184,27 @@ def compute_landforms(glob_string, shp_mask_dir):
 
         df = df[df['frac'] >= cutoff]
         df['frac_scaled'] = (df['cells'] / df['cells'].sum())*100
-        df = df.sort_values(by='cells', ascending=False)
+        
+        # also get lf-avg of elevation and slope
+        df['dem'] = -1
+        df['slope'] = -1
 
-        print df
+        a_lf = ds['landform_class'].to_masked_array()
+        
+        # calculate the avg. elevation and slope in landforms
+        for i, r in df.iterrows():
+            print r['lf_id'], type(r['lf_id'])
+            
+            ix = a_lf == int(r['lf_id'])
+            lf_slope = ds['slope'].values[ix].mean()
+            lf_elevation = ds['dem'].values[ix].mean()
+            df.loc[i, 'slope'] = lf_slope
+            df.loc[i, 'dem'] = lf_elevation
+            
+        #df = df.sort_values(by='cells', ascending=False)
+        df.reset_index(inplace=True)
         return df
     
-    tiles = sorted(glob.glob(os.path.join(TILESTORE_PATH, '*.nc')))
-    
-
 
     def tile_files_compatible(files):
         """Get global attribute from all tile netcdf files and check
@@ -205,99 +216,42 @@ def compute_landforms(glob_string, shp_mask_dir):
                 return True
         else:
             return False
+
+    tiles = sorted(glob.glob(os.path.join(TILESTORE_PATH, '*.nc')))
     
     if not tile_files_compatible(tiles):
         log.error('Tile files in %s are not compatible.' % TILESTORE_PATH)
-            
+
+    tiles_stats = []
     for tile in tiles:
         ds = xr.open_dataset(tile, decode_cf=False)
         lf_stats = get_tile_summary(ds, cutoff=CUTOFF)
+        lon, lat = get_center_coord(ds)
+        
+        coords = pd.Series([(round(lon,2),round(lat,2)) for x in range(len(lf_stats))])
+        lf_stats['coord'] = coords
+        lf_stats.set_index(['coord', 'lf_id'], inplace=True)
+        tiles_stats.append( lf_stats )
 
-        exit()
-        REMOVE_WHENFIXED = False
-        if REMOVE_WHENFIXED:
+    df = pd.concat(tiles_stats)
 
-            # calc avg. slope for landform
-            if DEM.mask.all():
-                pass
-            else:
-
-                a = LFC.filled(-1).ravel()
-                b = Counter(a)
-                bins = [(x, b[x]) for x in lf_full_set]
-                bins_sum = sum([n for _, n in bins if n > 0])
-
-                def check_cutoff(x, _sum, _cut):
-                    """ check if landform akes the cutoff """
-                    if x == 0:
-                        return False
-                    else:
-                        if (100 * float(x) / _sum >= _cut):
-                            return True
-                        else:
-                            return False
-
-
-                def perc(x, _sum):
-                    """ calculate percentage covered"""
-                    if x <= 0:
-                        return -1
-                    else:
-                        return round((x/float(_sum))*100.0, 3)
-
-
-                bins_cut  = [(_, n) if check_cutoff(n, bins_sum, CUTOFF) else (_, 0) for _, n in bins]
-                bins_sum2 =  sum([n for _, n in bins_cut if n > 0])
-                bins_frac = [perc(n, bins_sum2) if n > -1 else -1 for _, n in bins_cut]
-
-                for el_cnt, (lower, upper) in enumerate(zip(ele_breaks[0:-1], ele_breaks[1:])):
-                    el_mask = np.ma.where((DEM >= lower) & (DEM < upper ), True, False)
-
-                    for lf_id in lf_set:
-                        lf_mask = np.ma.where(LFB == lf_id, True, False)
-                        full_mask = np.invert(el_mask * lf_mask)
-
-                        _SLOPE = copy.deepcopy(SLOPE)
-                        _SLOPE[full_mask] = np.ma.masked
-
-                        _DEM = copy.deepcopy(DEM)
-                        _DEM[full_mask] = np.ma.masked
-
-                        # iterate over elevation bands (400m each)
-                        sl = np.ma.mean(_SLOPE)
-                        el = np.ma.mean(_DEM)
-
-                        if type(sl) is np.ma.core.MaskedConstant:
-                            sl = -1
-                        slopes.append(sl)
-
-                        if type(el) is np.ma.core.MaskedConstant:
-                            el = -1
-                        elevations.append(el)
-
-                # write data files 
-
-                valid_lfs = sum([1 for x in bins_frac if x > -1])
-                out_frac  = [lat, lon, valid_lfs] + bins_frac
-                out_slope = [lat, lon, valid_lfs] + [round(x, 2) if (x != -1) and (y != -1) else -1 for x, y in zip(slopes, bins_frac)]
-                out_ele   = [lat, lon, valid_lfs] + [int(round(x, 0)) if (x != -1) and (y != -1) else -1 for x, y in zip(elevations, bins_frac)]
-
-                s_out_fr = '\t'.join([str(x) for x in out_frac]) + '\n'
-                s_out_sl = '\t'.join([str(x) for x in out_slope]) + '\n'
-                s_out_el = '\t'.join([str(x) for x in out_ele]) + '\n'
-
-                f_el.write( s_out_el )
-                f_lf.write( s_out_fr )
-                f_sl.write( s_out_sl )
-                
-                f_el.flush()
-                f_lf.flush()
-                f_sl.flush()
-
-    f_el.close()
-    f_lf.close()
-    f_sl.close()
-
+    for col in ['frac_scaled', 'slope', 'dem']:
+        dfx = df[col]
+        dfx = dfx.unstack(level=-1, fill_value=-9999)
+        
+        # rename columns and split coord tuple col to lon and lat col
+        dfx.columns = ['lf' + str(col) for col in dfx.columns]
+        dfx = dfx.reset_index()
+        dfx[['lon', 'lat']] = dfx['coord'].apply(pd.Series)
+        
+        # cleanup (move lon, lat to front, drop coord col)
+        dfx.drop('coord', axis=1, inplace=True)
+        latlon_cols = ['lon', 'lat']
+        new_col_order = ['lon', 'lat'] + \
+                        [x for x in dfx.columns.tolist() if x not in latlon_cols]
+        dfx = dfx[new_col_order]
+        print dfx
+        print '----------------'
 
 
 # ----------------- PART3 -------------------------------

@@ -40,3 +40,8 @@ docs/_build
 
 # Cookiecutter
 output/
+
+# Development folders
+processed/
+srtm1_filled
+srtm1_shp_mask
