@@ -82,7 +82,7 @@ def convert_float_coord_to_string(coord, p=2):
     return coord_s
 
 
-def define_landform_classes(step, limit):
+def define_landform_classes(step, limit, TYPE='SIMPLIFIED'):
     """Define the landform classes."""
     
     # Parameters:
@@ -92,13 +92,45 @@ def define_landform_classes(step, limit):
     ele_breaks = [-1000] + range(step, limit, step) + [10000]
     ele_cnt = range(1, len(ele_breaks))
 
-    # basic set of landforms
+    # code system [code position 2 & 3, 1= elevations_tep]
     # code: [slopeid<1..6>][aspectid<0,1..4>]
-    lf_set = [10,21,22,23,24,31,32,33,34,40,51,52,53,54,60]
+    #
+    #  slope:
+    #
+    #  Name         SIMPLIFIED     WEISS
+    #
+    #  hilltop          1           1
+    #  upper slope                  2*
+    #  mid slope        3*          3*
+    #  flats            4           4
+    #  lower slope                  5*
+    #  valley           6           6
+    #
+    #  
+    #  aspect:
+    #
+    #  Name         SIMPLIFIED     WEISS
+    #
+    #  north             1          1
+    #  east              2
+    #  south             3          3
+    #  west              4          
+    
+        
+    if TYPE == 'WEISS':
+        lf_set = [10,21,22,23,24,31,32,33,34,40,51,52,53,54,60]
+        lf_full_set = []
+        for e in ele_cnt:
+            lf_full_set += [x+(100*e) for x in lf_set]
+    elif TYPE == 'SIMPLIFIED':
+        # TYPE: SIMPLIFIED (1:hilltop, 3:midslope, 4:flat, 6:valley)
+        lf_set = [10,31,33,40,60]
+        lf_full_set = []
+        for e in ele_cnt:
+            lf_full_set += [x+(100*e) for x in lf_set]
+    else:
+        log.error('Currently only classifiation schemes WEISS, SIMPLIFIED supported.')
 
-    lf_full_set = []
-    for e in ele_cnt:
-        lf_full_set += [x+(100*e) for x in lf_set]
 
     return (lf_full_set, ele_breaks)
 
@@ -166,7 +198,7 @@ def tile_files_compatible(files):
     """Get global attribute from all tile netcdf files and check
     they are the same.
     """
-    x = [get_global_attr(xr.open_dataset(x), 'landform_elevation_step') for x in files]
+    x = [get_global_attr(xr.open_dataset(x), 'lgt.elevation_step') for x in files]
     if all(x):
         if x[0] != None:
             return True
@@ -177,17 +209,17 @@ def tile_files_compatible(files):
 def create_stats_table(df, var):
     """Create a landform info table for all coords and given var."""
     
-    df_ = df[var].unstack(level=-1, fill_value=-9999)
+    df_ = df[var].unstack(level=-1, fill_value=NODATA)
     # rename columns and split coord tuple col to lon and lat col
     df_.columns = ['lf' + str(col) for col in df_.columns]
     df_ = df_.reset_index()
-    df_[['lon', 'lat']] = df_['coord'].apply(pd.Series)
+    df_[['lon', 'lat', 'lf_cnt']] = df_['coord'].apply(pd.Series)
     
     # cleanup (move lon, lat to front, drop coord col)
     df_.drop('coord', axis=1, inplace=True)
-    latlon_cols = ['lon', 'lat']
-    new_col_order = latlon_cols + \
-                    [x for x in df_.columns.tolist() if x not in latlon_cols]
+    latloncnt_cols = ['lon', 'lat', 'lf_cnt']
+    new_col_order = latloncnt_cols + \
+                    [x for x in df_.columns.tolist() if x not in latloncnt_cols]
     return df_[new_col_order]
 
 
@@ -201,7 +233,8 @@ def compute_landforms(glob_string, shp_mask_dir):
     dem_files = sorted(glob.glob(glob_string))
 
     # define the final landform classes (now with elevation brackets)
-    lf_classes, lf_ele_levels = define_landform_classes(400, 6000)
+    # SIMPLIFIED: reduced number of lf classes, more elevation differences
+    lf_classes, lf_ele_levels = define_landform_classes(200, 6000, TYPE='SIMPLIFIED')
 
     for dem_file in dem_files:
         fname = os.path.basename(dem_file)
@@ -223,7 +256,7 @@ def compute_landforms(glob_string, shp_mask_dir):
                 # reclass
                 if tile != None:
                     classify_aspect(tile)
-                    classify_landform(tile, elevation_levels=lf_ele_levels)            
+                    classify_landform(tile, elevation_levels=lf_ele_levels, TYPE='SIMPLIFIED')            
                     
                     # store file in tilestore
                     lon, lat = get_center_coord(tile)
@@ -243,9 +276,10 @@ def compute_landforms(glob_string, shp_mask_dir):
     for tile in tiles:
         ds = xr.open_dataset(tile, decode_cf=False)
         lf_stats = get_tile_summary(ds, cutoff=CUTOFF)
+        number_of_ids = len(lf_stats)
         lon, lat = get_center_coord(ds)
         
-        coords = pd.Series([(round(lon,2),round(lat,2)) for x in range(len(lf_stats))])
+        coords = pd.Series([(round(lon,2),round(lat,2), number_of_ids) for x in range(len(lf_stats))])
         lf_stats['coord'] = coords        
         lf_stats.set_index(['coord', 'lf_id'], inplace=True)
         tiles_stats.append( lf_stats )
@@ -256,7 +290,8 @@ def compute_landforms(glob_string, shp_mask_dir):
     elev_lf = create_stats_table(df, 'elevation')
     slope_lf = create_stats_table(df, 'slope')
     
-    return (frac_lf, elev_lf, slope_lf)
+    # return the dataframes and the list of all possible landform units
+    return (frac_lf, elev_lf, slope_lf, lf_classes)
 
 
 # ----------------- PART3 -------------------------------
@@ -270,14 +305,6 @@ varD = {'TOTC': ('SOC', 'Soil Organic Carbon', 'percent', 0.1),
 
 soil_vars = sorted(varD.keys())
 
-# define landform ids
-ele_breaks = [-1000] + range(400, 4801, 400) + [10000]
-ele_cnt = range(1, len(ele_breaks))
-lf_set = "10,21,22,23,24,31,32,33,34,40,51,52,53,54,60".split(',')
-lf_full_set = []
-for e in ele_cnt:
-    lf_full_set += [int(x)+(100*e) for x in lf_set]
-
 
 def is_3d(ds, v):
     """Check if xr.DataArray has 3 dimensions."""
@@ -287,14 +314,18 @@ def is_3d(ds, v):
     return False
 
 
-def assign_to_dataarray(data, df, refdata=False):
+def assign_to_dataarray(data, df, lf_full_set, refdata=False):
     """Place value into correct location of data array."""
     for _, r in df.iterrows():
         if refdata:
             data.loc[r.lat, r.lon] = r.lf_cnt
         else:
-            v = np.array(r.tolist()[3:])
-            data.loc[lf_full_set, r.lat, r.lon] = np.where(v == -1, NODATA, v)
+            data[:] = NODATA
+            for lf in r.index[3:]:
+                if r[lf] > NODATA:
+                    lf_id = int(lf[2:])
+                    lf_pos = lf_full_set.index(lf_id)
+                    data.loc[lf_id, r.lat, r.lon] = r[lf]
 
     return data
 
@@ -354,12 +385,15 @@ def build_site_netcdf(soilref, elevref):
     return dsout
 
 
-def build_landform_netcdf(refnc=None):
-    """Build landform netcdf based on refnc dims."""
+def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, refnc=None):
+    """Build landform netcdf based on refnc dims and datatables."""
+    
     dsout = xr.Dataset()
 
     COORDS = [('lf_id', lf_full_set), ('lat', refnc.lat), ('lon', refnc.lon)]
     SHAPE = tuple([len(x) for _, x in COORDS])
+    
+    log.info("SHAPE:"+ str(SHAPE))
 
     # initiate data arrays
     _blank = np.ones(SHAPE) * NODATA
@@ -368,17 +402,12 @@ def build_landform_netcdf(refnc=None):
     da_frac = xr.DataArray(_blank[:], name='frac', coords=COORDS)
     da_slope = xr.DataArray(_blank[:], name='slope', coords=COORDS)
     da_elev = xr.DataArray(_blank[:], name='elevation', coords=COORDS)
-
-    # parse txt input files
-    df = pd.read_csv('landforms_full_tpi300.txt', delim_whitespace=True)
-    da_lfcnt = assign_to_dataarray(da_lfcnt, df, refdata=True)
-    da_frac = assign_to_dataarray(da_frac, df)
-
-    df = pd.read_csv('slopes_full_tpi300.txt', delim_whitespace=True)
-    da_slope = assign_to_dataarray(da_slope, df)
-
-    df = pd.read_csv('elevations_full_tpi300.txt', delim_whitespace=True)
-    da_elev = assign_to_dataarray(da_elev, df)
+    
+    # assign dataframe data to arrays
+    da_lfcnt = assign_to_dataarray(da_lfcnt, frac_lf, lf_full_set, refdata=True)
+    da_frac = assign_to_dataarray(da_frac, frac_lf, lf_full_set)
+    da_slope = assign_to_dataarray(da_slope, slope_lf, lf_full_set)
+    da_elev = assign_to_dataarray(da_elev, elev_lf, lf_full_set)
 
     # store arrays in dataset
     dsout[da_lfcnt.name] = da_lfcnt
@@ -502,22 +531,21 @@ def main():
     # section 1:
     # compute the 0.5x0.5 deg tiles
     print "computing landforms"
-    df_frac, df_elev, df_slope = compute_landforms(SRTMSTORE_STRING, WATERMASKSTORE_PATH)
+    
+    # TODO: find a better way to access lf_full_set (instead of passing it around)
+    df_frac, df_elev, df_slope, lf_full_set = compute_landforms(SRTMSTORE_STRING, WATERMASKSTORE_PATH)
     log.info("END OF FIRST SECTION")
-    exit(-1)
     
     # section 2:
     # build the actual LPJ-Guess 4.0 subpixel input files
-    # ...
-    
-    # source files
+    # TODO: make these files cli arguments
     soilref = os.path.join('soil', 'GLOBAL_WISESOIL_DOM_05deg.nc')
     elevref = os.path.join('elevation_CL.nc')
 
     # build netcdfs
     print "building 2d netcdf files"
     sitenc = build_site_netcdf(soilref, elevref)
-    landformnc = build_landform_netcdf(refnc=sitenc)
+    landformnc = build_landform_netcdf(lf_full_set, df_frac, df_elev, df_slope, refnc=sitenc)
     
     # clip to joined mask
     elev_mask = np.where(sitenc['ELEVATION'].values == NODATA, 0, 1)

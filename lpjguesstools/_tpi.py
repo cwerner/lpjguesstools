@@ -17,6 +17,8 @@ from scipy.ndimage.filters import generic_filter
 log = logging.getLogger(__name__)
 
 
+NODATA = -9999
+
 def create_kernel(radius=2, invert=False):
     """Define a kernel"""
     
@@ -33,7 +35,7 @@ def create_kernel(radius=2, invert=False):
     return k
 
 
-def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False):
+def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False, TYPE='SIMPLIFIED'):
     """Classify DEM to tpi300 array according to Weiss 2001 """
 
     # Parameters:
@@ -41,8 +43,6 @@ def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False):
     # - res: resolution of one pixel in map units (default SRTM1: 30m)
     # - return_unclassed: return the continuous tpi values
     # - dx: cell size
-    
-    # TODO: check if we have boundary issues in tpi calculation
     
     # inner and outer tpi300 kernels
     k_smooth = create_kernel(radius=2)
@@ -63,16 +63,28 @@ def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False):
     tpi = dem - generic_filter(dem, np.mean, footprint=k_outer, mode="reflect") + 0.5
     tpi = generic_filter(tpi, np.mean, footprint=k_smooth, mode="reflect").astype(int)
 
-    mz10, mz05, pz05, pz10 = np.percentile(tpi, [100-84.13, 100-69.15, 69.15, 84.13])
+    if TYPE == 'WEISS':
+        # values from poster
+        mz10, mz05, pz05, pz10 = np.percentile(tpi, [100-84.13, 100-69.15, 69.15, 84.13])
+        # TODO: check if this should be a decision tree (we have unclassified cells) 
+        tpi_classes = np.ones( tpi.shape ) * NODATA
+        tpi_classes[(tpi > pz10)]                                   = 1 # ridge
+        tpi_classes[((tpi > pz05)  & (tpi <= pz10))]                = 2 # upper slope
+        tpi_classes[((tpi > mz05)  & (tpi <  pz05) & (slope >  5))] = 3 # middle slope
+        tpi_classes[((tpi >= mz05) & (tpi <= pz05) & (slope <= 5))] = 4 # flats slope
+        tpi_classes[((tpi >= mz10) & (tpi <  mz05))]                = 5 # lower slopes
+        tpi_classes[(tpi < mz10)]                                   = 6 # valleys
 
-    tpi_classes = np.zeros( tpi.shape )
-    tpi_classes[(tpi > pz10)]                                   = 1 # ridge
-    tpi_classes[((tpi > pz05)  & (tpi <= pz10))]                = 2 # upper slope
-    tpi_classes[((tpi > mz05)  & (tpi <  pz05) & (slope >  5))] = 3 # middle slope
-    tpi_classes[((tpi >= mz05) & (tpi <= pz05) & (slope <= 5))] = 4 # flats slope
-    tpi_classes[((tpi >= mz10) & (tpi <  mz05))]                = 5 # lower slopes
-    tpi_classes[(tpi < mz10)]                                   = 6 # valleys
-
+    # simplified:
+    if TYPE == 'SIMPLIFIED':
+        # according to Tagil & Jenness (2008) Science Alert doi:10.3923/jas.2008.910.921
+        mz10, pz10 = np.percentile(tpi, [100-84.13, 84.13])
+        tpi_classes = np.ones( tpi.shape ) * NODATA
+        tpi_classes[(tpi >= mz10)]                               = 1 # hilltop
+        tpi_classes[(tpi >= mz10) & (tpi < pz10) & (slope >= 6)] = 3 # mid slope
+        tpi_classes[(tpi >  mz10) & (tpi < pz10) & (slope < 6)]  = 4 # flat surface
+        tpi_classes[(tpi <= mz10)]                               = 6 # valley
+    
     if return_unclassed:
         return tpi
     return tpi_classes

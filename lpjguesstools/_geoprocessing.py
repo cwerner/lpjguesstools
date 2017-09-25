@@ -210,7 +210,8 @@ def compute_spatial_dataset(fname, fname_shp=None):
                         aspect = calc_aspect(Sx, Sy)
                         
                         # calculate tpi (now in utm)
-                        landform = calculate_tpi(dem_filled, slope, 300, res=dx)
+                        landform = calculate_tpi(dem_filled, slope, 300, 
+                                                 res=dx, TYPE='SIMPLIFIED')
 
                         # write slope, aspect to ds_utm
                         ds_utm.write(slope.astype('float64'), 3)
@@ -274,17 +275,25 @@ def get_center_coord(ds):
     return (lon_c, lat_c)
         
 
-def classify_aspect(ds):
-    """Classify dataarray from continuous aspect to 1,2,3,4."""
+def classify_aspect(ds, TYPE='SIMPLIFIED'):
+    """Classify dataarray from continuous aspect to 1,2,3,4. or 1, 2"""
     
     # TODO: Check if we need only northern and southern aspect classes for
     #       implementation     
     aspect = ds['aspect'].to_masked_array()
     asp_cl = ds['aspect'].to_masked_array()
-    asp_cl[(aspect >= 315) | (aspect <  45)] = 1    # North
-    asp_cl[(aspect >= 45)  & (aspect < 135)] = 2    # East
-    asp_cl[(aspect >= 135) & (aspect < 225)] = 3    # South
-    asp_cl[(aspect >= 225) & (aspect < 315)] = 4    # West
+    
+    if TYPE == 'WEISS':
+        asp_cl[(aspect >= 315) | (aspect <  45)] = 1    # North
+        asp_cl[(aspect >= 45)  & (aspect < 135)] = 2    # East
+        asp_cl[(aspect >= 135) & (aspect < 225)] = 3    # South
+        asp_cl[(aspect >= 225) & (aspect < 315)] = 4    # West
+    elif TYPE == 'SIMPLIFIED':
+        asp_cl[(aspect >= 270) | (aspect <  90)] = 1    # North
+        asp_cl[(aspect  < 270) & (aspect >= 90)] = 3    # South
+    else:
+        log.error('Currently only classifiation schemes WEISS, SIMPLIFIED supported.')
+
     asp_cl = np.ma.masked_where(ds['mask'] == 0, asp_cl).filled(NODATA)
     ds['aspect_class'] = xr.full_like(ds['aspect'], NODATA)
     ds['aspect_class'][:] = asp_cl
@@ -292,12 +301,23 @@ def classify_aspect(ds):
     return ds
 
 
-def classify_landform(ds, elevation_levels=[]):
+def classify_landform(ds, elevation_levels=[], TYPE='SIMPLIFIED'):
     """Subdivide landform classes by aspect class."""        
     SHAPE = ds['mask'].shape
     lf_cl = np.ma.masked_array(np.ones_like(ds['mask'].values), mask=ds['mask'].values)
     
-    aspect_lfs = (ds['aspect_class'].to_masked_array() > 0) & (np.in1d(ds['landform'].to_masked_array(), [2,3,5]).reshape(SHAPE))
+    # depending on classifiaction scheme we need different slope classes that 
+    # have an aspect component
+    if TYPE == 'SIMPLIFIED':
+        aspect_lf = [3]
+    elif TYPE == 'WEISS':
+        aspect_lf = [2,3,5]
+    else:
+        log.error('Currently only classifiation schemes WEISS, SIMPLIFIED supported.')
+    set_global_attr(ds, 'lgt.classification', TYPE.lower())
+    
+    aspect_lfs = (ds['aspect_class'].to_masked_array() > 0) & \
+                  (np.in1d(ds['landform'].to_masked_array(), aspect_lf).reshape(SHAPE))
     
     lf_cl = np.ma.where(aspect_lfs, ds['landform'] * 10 + ds['aspect_class'],
                                     ds['landform'] * 10).filled(NODATA)
@@ -307,7 +327,7 @@ def classify_landform(ds, elevation_levels=[]):
     ele = ds['elevation'].to_masked_array()
     if len(elevation_levels) > 0:
         # add global elevation step attribute (second element, first is lower boundary)
-        set_global_attr(ds, 'landform_elevation_step', "%s" % elevation_levels[1])
+        set_global_attr(ds, 'lgt.elevation_step', "%s" % elevation_levels[1])
 
         for i, (lb, ub) in enumerate(zip(elevation_levels[:-1], elevation_levels[1:])):
             lf_cl = np.ma.where(((ele >= lb) & (ele < ub)), lf_cl + (i+1) * 100, lf_cl)   
