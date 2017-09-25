@@ -117,7 +117,6 @@ def analyze_filename(fname):
     """Analyze passed filename for zip components"""
     
     if fname[-4:] == '.zip':
-        log.info('DEM file with zip/hgt format detected.')
         # default hgt in zip (SRTM1) - specific naming convention for SRTM1 1arc files
         bname = os.path.basename(fname).replace('.zip', '').split('.')[0] + '.hgt'
         fname = 'zip://%s!%s' % (fname, bname)

@@ -203,9 +203,6 @@ def create_stats_table(df, var):
 def compute_landforms(glob_string, shp_mask_dir, tilestore_path='tiles', cutoff=1.0):
     """Compute landform units based on elevation, slope, aspect and tpi classes."""
 
-    # config settings (that eventually should go to cli or conf file)
-    CUTOFF = 1.0                        # min percent covered by LF to be considered
-    
     dem_files = sorted(glob.glob(glob_string))
 
     # define the final landform classes (now with elevation brackets)
@@ -325,9 +322,6 @@ def build_site_netcdf(soilref, elevref, extent=None):
         ds_soil = ds_soil_orig.sel(lev=1.0).squeeze(drop=True)
         ds_ele = ds_ele_orig.squeeze(drop=True)
     del ds_soil['lev']
-
-    print ds_soil['AreaFrac'].shape
-    print ds_ele['data'].shape
 
     # identify locations that need filling and use left neighbor
     smask = np.where(ds_soil['TOTC'].to_masked_array().mask, 1, 0)
@@ -520,7 +514,8 @@ def main():
     SRTMSTORE_STRING = "srtm1/*.zip"
     WATERMASKSTORE_PATH = "srtm1_shp_mask"
     GRIDLIST_TXT = 'gridlist_CL.txt'
-    REGION =[-76, -56, -66, -16]    # lon1, lat1, lon2, lat2
+    # [6, 40, 12, 55] Deutschland
+    REGION = #[-76, -56, -66, -16]    # lon1, lat1, lon2, lat2
     TILESTORE_PATH = 'processed'
     CUTOFF = 1.0    # % area required to keep landform
 
