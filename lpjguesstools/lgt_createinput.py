@@ -515,7 +515,7 @@ def main():
     WATERMASKSTORE_PATH = "srtm1_shp_mask"
     GRIDLIST_TXT = 'gridlist_CL.txt'
     # [6, 40, 12, 55] Deutschland
-    REGION = #[-76, -56, -66, -16]    # lon1, lat1, lon2, lat2
+    REGION = [-76, -56, -66, -16]    # lon1, lat1, lon2, lat2
     TILESTORE_PATH = 'processed'
     CUTOFF = 1.0    # % area required to keep landform
 
