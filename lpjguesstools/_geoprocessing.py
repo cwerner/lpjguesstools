@@ -117,11 +117,24 @@ def compute_spatial_dataset(fname, fname_shp=None):
     """Take a GTiff file name and return a xarray datasets of dem, slope, 
     aspect and water mask layers."""
 
+    # check file type
+    if fname[-4:] == '.zip':
+        log.info('DEM file with zip/hgt format detected.')
+        # default hgt in zip (SRTM1) - specific naming convention for SRTM1 1arc files
+        bname = os.path.basename(fname).replace('.zip', '').split('.')[0] + '.hgt'
+        fname = 'zip://%s!%s' % (fname, bname)
+    else:
+        if fname[-4:] not in ['.tif', '.tiff', '.hgt']:
+            log.error('DEM file has unknown file suffix.')
+
+    log.info('Opening file %s ...' % fname)
+
     # open source GTiff file (in WGS84)
     with rasterio.open(fname) as src:    
         msrc_kwargs = src.meta.copy()
         msrc_kwargs.update(count=5)
         msrc_kwargs.update(dtype='float64')
+        msrc_kwargs.update(driver='GTiff')
         
         # read dem (as maskedarray) and create land mask (with gtiff nodata if present)
         dem = src.read(1, masked=True)

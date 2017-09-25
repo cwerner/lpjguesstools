@@ -213,15 +213,17 @@ def compute_landforms(glob_string, shp_mask_dir, tilestore_path='tiles', cutoff=
     for dem_file in dem_files:
         fname = os.path.basename(dem_file)
         fdir  = os.path.dirname(dem_file)
+        
+        # SRTM1 default nameing convention
         str_lat = fname[:3]
-        str_lon = fname[4:8]
+        str_lon = fname[3:7]
         
         # if tiles don't exist process them
         if not tile_already_processed(fname, tilestore_path):        
             log.info('processing: %s (%s)' % (dem_file, datetime.datetime.now()))
 
-            shp_glob_string = shp_mask_dir + '/' + str_lon + str_lat + '*.shp'
-            matched_shp_file = match_watermask_shpfile(shp_glob_string)
+            shp_glob_string = os.path.join(shp_mask_dir, str_lon + str_lat + '*.shp')
+            matched_shp_file = match_watermask_shpfile(shp_glob_string.lower())
             
             ds_srtm1 = compute_spatial_dataset(dem_file, fname_shp=matched_shp_file)
             tiles = split_srtm1_dataset(ds_srtm1)
@@ -498,7 +500,7 @@ def main():
     """Main Script."""    
     
     # defaults (will move to cli)
-    SRTMSTORE_STRING = "srtm1/*.tif"
+    SRTMSTORE_STRING = "srtm1/*.zip"
     WATERMASKSTORE_PATH = "srtm1_shp_mask"
     GRIDLIST_TXT = 'gridlist_CL.txt'
     REGION =[-76, -56, -66, -16]    # lon1, lat1, lon2, lat2
