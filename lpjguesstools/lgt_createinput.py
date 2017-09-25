@@ -37,7 +37,8 @@ import xarray as xr
 
 from _geoprocessing import compute_spatial_dataset, classify_aspect, \
                            classify_landform, get_center_coord, \
-                           split_srtm1_dataset, get_global_attr
+                           split_srtm1_dataset, get_global_attr, \
+                           analyze_filename
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +120,8 @@ def tile_already_processed(fname, TILESTORE_PATH):
         source_attr = get_global_attr(xr.open_dataset(existing_tile), 'source')
         if source_attr != None:
             # TODO: add second check (version?)
-            if fname == source_attr:
+            _, source_name = analyze_filename(fname)
+            if source_name == source_attr:
                 return True
     return False    
 
@@ -310,19 +312,22 @@ def build_site_netcdf(soilref, elevref, extent=None):
     ds_ele_orig = xr.open_dataset(elevref)
 
     if extent is not None:
-        lat_slice = slice(extent[1], extent[3])
-        lon_slice = slice(extent[0], extent[2])
+        lat_min, lat_max = extent[1], extent[3]
+        lon_min, lon_max = extent[0], extent[2]
 
         # slice simulation domain
-        ds_soil = ds_soil_orig.sel(lat=lat_slice, 
-                                   lon=lon_slice,
+        ds_soil = ds_soil_orig.sel(lon=((ds_soil_orig.lon >= lon_min) & (ds_soil_orig.lon <= lon_max)),
+                                   lat=((ds_soil_orig.lat >= lat_min) & (ds_soil_orig.lat <= lat_max)),
                                    lev=1.0).squeeze(drop=True)
-        ds_ele = ds_ele_orig.sel(latitude=lat_slice,
-                                 longitude=lon_slice).squeeze(drop=True)
+        ds_ele = ds_ele_orig.sel(longitude=((ds_ele_orig.longitude >= lon_min) & (ds_ele_orig.longitude <= lon_max)),
+                                 latitude=((ds_ele_orig.latitude >= lat_min) & (ds_ele_orig.latitude <= lat_max))).squeeze(drop=True)
     else:
         ds_soil = ds_soil_orig.sel(lev=1.0).squeeze(drop=True)
         ds_ele = ds_ele_orig.squeeze(drop=True)
     del ds_soil['lev']
+
+    print ds_soil['AreaFrac'].shape
+    print ds_ele['data'].shape
 
     # identify locations that need filling and use left neighbor
     smask = np.where(ds_soil['TOTC'].to_masked_array().mask, 1, 0)
@@ -377,6 +382,18 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, refnc=None):
     da_frac = xr.DataArray(_blank[:], name='frac', coords=COORDS)
     da_slope = xr.DataArray(_blank[:], name='slope', coords=COORDS)
     da_elev = xr.DataArray(_blank[:], name='elevation', coords=COORDS)
+    
+    # check that landform coordinates are in refnc
+    lat_min, lat_max = frac_lf.lat.min(), frac_lf.lat.max()
+    lon_min, lon_max = frac_lf.lon.min(), frac_lf.lon.max()
+    
+    lats = refnc['lat'].values.tolist()
+    lons = refnc['lon'].values.tolist()
+    
+    if (((lat_min < min(lats)) or (lat_max > max(lats))) or 
+       (((lon_min < min(lons)) or (lon_max > max(lons))))):
+       log.error('DEM tiles not within specified extent.')
+       exit()   
     
     # assign dataframe data to arrays
     da_lfcnt = assign_to_dataarray(da_lfcnt, frac_lf, lf_full_set, refdata=True)

@@ -113,19 +113,28 @@ def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source
     return ds
 
 
-def compute_spatial_dataset(fname, fname_shp=None):
-    """Take a GTiff file name and return a xarray datasets of dem, slope, 
-    aspect and water mask layers."""
-
-    # check file type
+def analyze_filename(fname):
+    """Analyze passed filename for zip components"""
+    
     if fname[-4:] == '.zip':
         log.info('DEM file with zip/hgt format detected.')
         # default hgt in zip (SRTM1) - specific naming convention for SRTM1 1arc files
         bname = os.path.basename(fname).replace('.zip', '').split('.')[0] + '.hgt'
         fname = 'zip://%s!%s' % (fname, bname)
+        source_name = bname
     else:
         if fname[-4:] not in ['.tif', '.tiff', '.hgt']:
             log.error('DEM file has unknown file suffix.')
+            exit()
+        source_name = os.path.basename(fname)
+    return (fname, source_name)
+
+
+def compute_spatial_dataset(fname, fname_shp=None):
+    """Take a GTiff file name and return a xarray datasets of dem, slope, 
+    aspect and water mask layers."""
+    
+    fname, source_name = analyze_filename(fname)
 
     log.info('Opening file %s ...' % fname)
 
@@ -273,7 +282,7 @@ def compute_spatial_dataset(fname, fname_shp=None):
 
     # create dataset    
     ds = create_dem_dataset(dem, dem_mask, slope, aspect, landform, 
-                            info=msrc_kwargs, source=os.path.basename(fname))
+                            info=msrc_kwargs, source=source_name)
     
     return ds
 
