@@ -500,16 +500,15 @@ def main():
     # defaults (will move to cli)
     SRTMSTORE_STRING = "srtm1/*.tif"
     WATERMASKSTORE_PATH = "srtm1_shp_mask"
-    ELEVATION_NC = "elevation_CL.nc"
     GRIDLIST_TXT = 'gridlist_CL.txt'
     REGION =[-76, -56, -66, -16]    # lon1, lat1, lon2, lat2
     TILESTORE_PATH = 'processed'
     CUTOFF = 1.0    # % area required to keep landform
 
-    # default soil data (contained in package)
+    # default soil and elevation data (contained in package)
     import pkg_resources
-    SOIL_NC = pkg_resources.resource_filename(__name__, 'data/GLOBAL_WISESOIL_DOM_05deg.nc')
-    print SOIL_NC
+    SOIL_NC      = pkg_resources.resource_filename(__name__, 'data/GLOBAL_WISESOIL_DOM_05deg.nc')
+    ELEVATION_NC = pkg_resources.resource_filename(__name__, 'data/GLOBAL_ELEVATION_05deg.nc')
     
     # current assumptions (make them cli options later):
     # - soil (use global ISRIC-WISE dataset in data dir)
