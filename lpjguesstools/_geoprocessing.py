@@ -123,7 +123,7 @@ def analyze_filename(fname):
         fname = 'zip://%s!%s' % (fname, bname)
         source_name = bname
     else:
-        if fname[-4:] not in ['.tif', '.tiff', '.hgt']:
+        if fname[-4:] not in ['.tif', '.hgt']:
             log.error('DEM file has unknown file suffix.')
             exit()
         source_name = os.path.basename(fname)
