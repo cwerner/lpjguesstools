@@ -41,34 +41,9 @@ from _geoprocessing import compute_spatial_dataset, classify_aspect, \
 
 log = logging.getLogger(__name__)
 
-# consts and lookups
-NODATA = -9999
-defaultD = {'missing_value': NODATA, '_FillValue': NODATA}
-
-# ----------------- PART2 -------------------------------
-# (formerly known as computeLandformStats5.py)
-#
-# Computes LandForm stats as TXT files for all pixels
-#
-# Input files:
-# - srtm1_masked [gap-filled and water-clipped elevation data]
-# - tpi300NEW, slopeNEW, aspectNEW
-#
-# Files produced:
-# - netcdfs_tpi300 [0.5deg netcdf files with aspect, slope, elevation, landform]
-# - elevations_full_tpi300.txt
-# - landforms_full_tpi300.txt
-# - slopes_full_tpi300.txt
-#
-# NOTES:
-# - txt data is filtered for 1% area (smaller units -1)
-# - netcdfs are original, for spatial mapping of filtered data onto netcdfs
-#   run script 'create_lf_avg_netcdfs.py'
-#
-# Christian Werner
-# christian.werner@senckenerg.de
-# 2017/03
-
+# import constants
+from . import NODATA
+from . import defaultAttrsDA
 
 def convert_float_coord_to_string(coord, p=2):
     """Convert a (lon,lat) coord to string."""
@@ -367,7 +342,7 @@ def build_site_netcdf(soilref, elevref):
         vattr = {'name': varD[v][0],
                  'long_name': varD[v][1],
                  'units': varD[v][2]}
-        vattr.update(defaultD)
+        vattr.update(defaultAttrsDA)
         da.attrs.update(vattr)
         da[:] = np.ma.masked_where(emask, da.to_masked_array().filled(NODATA))
         dsout[da.name] = da
@@ -376,7 +351,7 @@ def build_site_netcdf(soilref, elevref):
     da = xr.full_like(da.copy(deep=True), NODATA)
     da.name = 'ELEVATION'
     vattr = {'name': 'elevation', 'long_name': 'Elevation', 'units': 'meters'}
-    vattr.update(defaultD)
+    vattr.update(defaultAttrsDA)
     da.attrs.update(vattr)
     
     da[:] = ds_ele_cl['data'].to_masked_array().filled(NODATA)
@@ -415,7 +390,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, refnc=None):
     dsout[da_slope.name] = da_slope
     dsout[da_elev.name] = da_elev
     for dv in dsout.data_vars:
-        dsout[dv].attrs.update(defaultD)
+        dsout[dv].attrs.update(defaultAttrsDA)
 
     return dsout
 
@@ -461,7 +436,7 @@ def build_compressed(ds):
 
     # create land_id reference array
     # TODO: clip land_id array to Chile country extent?
-    da_ids.attrs.update(defaultD)
+    da_ids.attrs.update(defaultAttrsDA)
     ds_ids = da_ids.to_dataset(name='land_id')
 
     # create xr.Dataset
@@ -487,7 +462,7 @@ def build_compressed(ds):
             _da.loc[land_id] = vals
         
         _da.attrs.update( ds[v].attrs )
-        _da.attrs.update(defaultD)
+        _da.attrs.update(defaultAttrsDA)
 
         dsout[_da.name] = _da
 

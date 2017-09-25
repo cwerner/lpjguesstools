@@ -17,11 +17,9 @@ from _tpi import calculate_tpi
 
 log = logging.getLogger(__name__)
 
-NODATA = -9999.0
-defaultAttrsDA = {
-        '_FillValue':    NODATA,
-        'missing_value': NODATA
-        }
+# import constants
+from . import NODATA
+from . import defaultAttrsDA
 
 def assign_boundary_cond(dem):
     """Pad grid boundaries for proper slope calc at adges."""

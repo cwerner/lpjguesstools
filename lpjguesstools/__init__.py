@@ -43,3 +43,10 @@ hFile = RotatingFileHandler("{0}/{1}.log".format(logPath, fileName), maxBytes=10
 hFile.setFormatter(lfFile)
 hFile.setLevel(logging.DEBUG)
 rootLogger.addHandler(hFile)
+
+# constants
+NODATA = -9999
+defaultAttrsDA = {
+        '_FillValue':    NODATA,
+        'missing_value': NODATA
+        }

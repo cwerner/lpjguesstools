@@ -16,8 +16,9 @@ from scipy.ndimage.filters import generic_filter
 
 log = logging.getLogger(__name__)
 
-
-NODATA = -9999
+# import constants
+from . import NODATA
+from . import defaultAttrsDA
 
 def create_kernel(radius=2, invert=False):
     """Define a kernel"""
