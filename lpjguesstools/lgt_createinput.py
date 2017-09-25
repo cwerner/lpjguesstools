@@ -198,11 +198,10 @@ def create_stats_table(df, var):
     return df_[new_col_order]
 
 
-def compute_landforms(glob_string, shp_mask_dir):
+def compute_landforms(glob_string, shp_mask_dir, tilestore_path='tiles', cutoff=1.0):
     """Compute landform units based on elevation, slope, aspect and tpi classes."""
 
     # config settings (that eventually should go to cli or conf file)
-    TILESTORE_PATH = "processed"        # location for final 0.5x0.5 deg tiles
     CUTOFF = 1.0                        # min percent covered by LF to be considered
     
     dem_files = sorted(glob.glob(glob_string))
@@ -218,7 +217,7 @@ def compute_landforms(glob_string, shp_mask_dir):
         str_lon = fname[4:8]
         
         # if tiles don't exist process them
-        if not tile_already_processed(fname, TILESTORE_PATH):        
+        if not tile_already_processed(fname, tilestore_path):        
             log.info('processing: %s (%s)' % (dem_file, datetime.datetime.now()))
 
             shp_glob_string = shp_mask_dir + '/' + str_lon + str_lat + '*.shp'
@@ -236,21 +235,21 @@ def compute_landforms(glob_string, shp_mask_dir):
                     # store file in tilestore
                     lon, lat = get_center_coord(tile)
                     lonlat_string = convert_float_coord_to_string((lon,lat))
-                    tile.to_netcdf(os.path.join(TILESTORE_PATH, \
+                    tile.to_netcdf(os.path.join(tilestore_path, \
                                    "srtm1_processed_%s.nc" % lonlat_string)) 
                                
   
     # section 2
     log.info("START OF SECTION2")
-    tiles = sorted(glob.glob(os.path.join(TILESTORE_PATH, '*.nc')))
+    tiles = sorted(glob.glob(os.path.join(tilestore_path, '*.nc')))
     
     if not tile_files_compatible(tiles):
-        log.error('Tile files in %s are not compatible.' % TILESTORE_PATH)
+        log.error('Tile files in %s are not compatible.' % tilestore_path)
 
     tiles_stats = []
     for tile in tiles:
         ds = xr.open_dataset(tile, decode_cf=False)
-        lf_stats = get_tile_summary(ds, cutoff=CUTOFF)
+        lf_stats = get_tile_summary(ds, cutoff=cutoff)
         number_of_ids = len(lf_stats)
         lon, lat = get_center_coord(ds)
         
@@ -268,10 +267,6 @@ def compute_landforms(glob_string, shp_mask_dir):
     # return the dataframes and the list of all possible landform units
     return (frac_lf, elev_lf, slope_lf, lf_classes)
 
-
-# ----------------- PART3 -------------------------------
-# (formerly known as create_lpj_lf_netcdf.py)
-#
 
 varD = {'TOTC': ('SOC', 'Soil Organic Carbon', 'percent', 0.1),
         'SDTO': ('SAND', 'Sand', 'percent', 1.0),
@@ -305,38 +300,43 @@ def assign_to_dataarray(data, df, lf_full_set, refdata=False):
     return data
 
 
-def build_site_netcdf(soilref, elevref):
+def build_site_netcdf(soilref, elevref, extent=None):
     """Build the site netcdf file."""
-    ds_soil = xr.open_dataset(soilref)
-    ds_ele = xr.open_dataset(elevref)
+    
+    # extent: (x1, y1, x2, y2)
+    ds_soil_orig = xr.open_dataset(soilref)
+    ds_ele_orig = xr.open_dataset(elevref)
 
-    lat_slice = slice(-56, -16)
-    lon_slice = slice(-76, -66)
+    if extent is not None:
+        lat_slice = slice(extent[1], extent[3])
+        lon_slice = slice(extent[0], extent[2])
 
-    # slice simulation domain
-    ds_soil_cl = ds_soil.sel(lat=lat_slice, lon=lon_slice,
-                             lev=1.0).squeeze(drop=True)
-
-    del ds_soil_cl['lev']
-
-    ds_ele_cl = ds_ele.sel(latitude=lat_slice,
-                           longitude=lon_slice).squeeze(drop=True)
+        # slice simulation domain
+        ds_soil = ds_soil_orig.sel(lat=lat_slice, 
+                                   lon=lon_slice,
+                                   lev=1.0).squeeze(drop=True)
+        ds_ele = ds_ele_orig.sel(latitude=lat_slice,
+                                 longitude=lon_slice).squeeze(drop=True)
+    else:
+        ds_soil = ds_soil_orig.sel(lev=1.0).squeeze(drop=True)
+        ds_ele = ds_ele_orig.squeeze(drop=True)
+    del ds_soil['lev']
 
     # identify locations that need filling and use left neighbor
-    smask = np.where(ds_soil_cl['TOTC'].to_masked_array().mask, 1, 0)
-    emask = np.where(ds_ele_cl['data'].to_masked_array().mask, 1, 0)
+    smask = np.where(ds_soil['TOTC'].to_masked_array().mask, 1, 0)
+    emask = np.where(ds_ele['data'].to_masked_array().mask, 1, 0)
     missing = np.where((smask == 1) & (emask == 0), 1, 0)
 
     ix, jx = np.where(missing == 1)
     for i, j in zip(ix, jx):
         for v in soil_vars:
-            ds_soil_cl[v][i, j] = ds_soil_cl[v][i, j-1]
+            ds_soil[v][i, j] = ds_soil[v][i, j-1]
 
     dsout = xr.Dataset()
     # soil vars
     for v in soil_vars:
         conv = varD[v][-1]
-        da = ds_soil_cl[v].copy(deep=True) * conv
+        da = ds_soil[v].copy(deep=True) * conv
         da.name = varD[v][0]
 
         vattr = {'name': varD[v][0],
@@ -354,7 +354,7 @@ def build_site_netcdf(soilref, elevref):
     vattr.update(defaultAttrsDA)
     da.attrs.update(vattr)
     
-    da[:] = ds_ele_cl['data'].to_masked_array().filled(NODATA)
+    da[:] = ds_ele['data'].to_masked_array().filled(NODATA)
     dsout[da.name] = da
 
     return dsout
@@ -368,8 +368,6 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, refnc=None):
     COORDS = [('lf_id', lf_full_set), ('lat', refnc.lat), ('lon', refnc.lon)]
     SHAPE = tuple([len(x) for _, x in COORDS])
     
-    log.info("SHAPE:"+ str(SHAPE))
-
     # initiate data arrays
     _blank = np.ones(SHAPE) * NODATA
     da_lfcnt = xr.DataArray(_blank[0,:,:].astype('i'), name='lfcnt', 
@@ -499,25 +497,38 @@ def create_gridlist(ds):
 def main():
     """Main Script."""    
     
+    # defaults (will move to cli)
     SRTMSTORE_STRING = "srtm1/*.tif"
     WATERMASKSTORE_PATH = "srtm1_shp_mask"
+    ELEVATION_NC = "elevation_CL.nc"
+    GRIDLIST_TXT = 'gridlist_CL.txt'
+    REGION =[-76, -56, -66, -16]    # lon1, lat1, lon2, lat2
+    TILESTORE_PATH = 'processed'
+    CUTOFF = 1.0    # % area required to keep landform
+
+    # default soil data (contained in package)
+    import pkg_resources
+    SOIL_NC = pkg_resources.resource_filename(__name__, 'data/GLOBAL_WISESOIL_DOM_05deg.nc')
+    print SOIL_NC
+    
+    # current assumptions (make them cli options later):
+    # - soil (use global ISRIC-WISE dataset in data dir)
+    # - elevation (lat,lon vars: "latitude", "longitude"; name: "data")
     
     # section 1:
     # compute the 0.5x0.5 deg tiles
     log.info("computing landforms")
     
     # TODO: find a better way to access lf_full_set (instead of passing it around)
-    df_frac, df_elev, df_slope, lf_full_set = compute_landforms(SRTMSTORE_STRING, WATERMASKSTORE_PATH)
+    df_frac, df_elev, df_slope, lf_full_set = compute_landforms(SRTMSTORE_STRING,
+                                                                WATERMASKSTORE_PATH,
+                                                                tilestore_path=TILESTORE_PATH,
+                                                                cutoff=CUTOFF)
     
     # section 2:
-    # build the actual LPJ-Guess 4.0 subpixel input files
-    # TODO: make these files cli arguments
-    soilref = os.path.join('soil', 'GLOBAL_WISESOIL_DOM_05deg.nc')
-    elevref = os.path.join('elevation_CL.nc')
-
     # build netcdfs
     log.info("building 2d netcdf files")
-    sitenc = build_site_netcdf(soilref, elevref)
+    sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=REGION)
     landformnc = build_landform_netcdf(lf_full_set, df_frac, df_elev, df_slope, refnc=sitenc)
     
     # clip to joined mask
@@ -545,7 +556,7 @@ def main():
     # gridlist file
     log.info("creating gridlist file")
     gridlist = create_gridlist(ids_2d)
-    open("gridlist_CL.txt", 'w').write(gridlist)
+    open(GRIDLIST_TXT, 'w').write(gridlist)
 
     log.info("done")
 
