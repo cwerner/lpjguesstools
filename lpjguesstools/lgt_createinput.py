@@ -428,8 +428,7 @@ def build_compressed(ds):
     elif 'ELEVATION' in ds.data_vars:
         v = 'ELEVATION'
     else:
-        print "Not a valid xr.Dataset (landforms or site only)."
-        exit()
+        log.error("Not a valid xr.Dataset (landforms or site only).")
 
     # create id position dataarray
     da_ids = xr.ones_like(ds[v]) * NODATA 
@@ -530,11 +529,10 @@ def main():
     
     # section 1:
     # compute the 0.5x0.5 deg tiles
-    print "computing landforms"
+    log.info("computing landforms")
     
     # TODO: find a better way to access lf_full_set (instead of passing it around)
     df_frac, df_elev, df_slope, lf_full_set = compute_landforms(SRTMSTORE_STRING, WATERMASKSTORE_PATH)
-    log.info("END OF FIRST SECTION")
     
     # section 2:
     # build the actual LPJ-Guess 4.0 subpixel input files
@@ -543,7 +541,7 @@ def main():
     elevref = os.path.join('elevation_CL.nc')
 
     # build netcdfs
-    print "building 2d netcdf files"
+    log.info("building 2d netcdf files")
     sitenc = build_site_netcdf(soilref, elevref)
     landformnc = build_landform_netcdf(lf_full_set, df_frac, df_elev, df_slope, refnc=sitenc)
     
@@ -560,7 +558,7 @@ def main():
     landformnc.to_netcdf('landforms_2d.nc', format='NETCDF4_CLASSIC')
 
     # convert to compressed netcdf format
-    print "building compressed format netcdf files"
+    log.info("building compressed format netcdf files")
     ids_2d, comp_sitenc = build_compressed(sitenc)
     _, comp_landformnc = build_compressed(landformnc)
     
@@ -570,11 +568,11 @@ def main():
     comp_sitenc.to_netcdf("site_data.nc", format='NETCDF4_CLASSIC')
 
     # gridlist file
-    print "creating gridlist file"
+    log.info("creating gridlist file")
     gridlist = create_gridlist(ids_2d)
     open("gridlist_CL.txt", 'w').write(gridlist)
 
-    print "done"
+    log.info("done")
 
 
 if __name__ == '__main__':
