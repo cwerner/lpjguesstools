@@ -231,12 +231,8 @@ def create_stats_table(df, var):
 
 
 @time_dec
-def compute_landforms(cfg):
+def convert_dem_files(cfg, lf_ele_levels):
     """Compute landform units based on elevation, slope, aspect and tpi classes."""
-
-    # define the final landform classes (now with elevation brackets)
-    lf_classes, lf_ele_levels = define_landform_classes(200, 6000, TYPE=cfg.CLASSIFICATION)
-
 
     if cfg.SRTMSTORE_PATH is not None:
         
@@ -276,6 +272,9 @@ def compute_landforms(cfg):
                                        "srtm1_processed_%s.nc" % lonlat_string)) 
                                
     
+@time_dec
+def compute_statistics(cfg):
+    """Extract landform statistics from tiles in tilestore."""
     available_tiles = glob.glob(os.path.join(cfg.TILESTORE_PATH, '*.nc'))
     
     if len(available_tiles) == 0:
@@ -285,6 +284,7 @@ def compute_landforms(cfg):
     
     if not tile_files_compatible(tiles):
         log.error('Tile files in %s are not compatible.' % cfg.TILESTORE_PATH)
+        exit()
 
     tiles_stats = []
     for tile in tiles:
@@ -303,9 +303,7 @@ def compute_landforms(cfg):
     frac_lf = create_stats_table(df, 'frac_scaled')
     elev_lf = create_stats_table(df, 'elevation')
     slope_lf = create_stats_table(df, 'slope')
-    
-    # return the dataframes and the list of all possible landform units
-    return (frac_lf, elev_lf, slope_lf, lf_classes)
+    return (frac_lf, elev_lf, slope_lf)
 
 
 def is_3d(ds, v):
@@ -547,22 +545,21 @@ def main(cfg):
     SOIL_NC      = pkg_resources.resource_filename(__name__, 'data/GLOBAL_WISESOIL_DOM_05deg.nc')
     ELEVATION_NC = pkg_resources.resource_filename(__name__, 'data/GLOBAL_ELEVATION_05deg.nc')
     
-    # current assumptions (make them cli options later):
-    # - soil (use global ISRIC-WISE dataset in data dir)
-    # - elevation (lat,lon vars: "latitude", "longitude"; name: "data")
+    log.info("Converting DEM files and computing landform stats")
+
+    # define the final landform classes (now with elevation brackets)
+    lf_classes, lf_ele_levels = define_landform_classes(200, 6000, TYPE=cfg.CLASSIFICATION)
+
+    # process dem files to tiles (if not already processed)
+    convert_dem_files(cfg, lf_ele_levels)
     
-    # section 1:
-    # compute the 0.5x0.5 deg tiles
-    log.info("computing landforms")
+    # compute stats from tiles
+    df_frac, df_elev, df_slope = compute_statistics(cfg)
     
-    # TODO: find a better way to access lf_full_set (instead of passing it around)
-    df_frac, df_elev, df_slope, lf_full_set = compute_landforms(cfg)
-    
-    # section 2:
     # build netcdfs
-    log.info("Building 2d netcdf files")
+    log.info("Building 2D netCDF files")
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
-    landformnc = build_landform_netcdf(lf_full_set, df_frac, df_elev, df_slope, refnc=sitenc)
+    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, refnc=sitenc)
     
     # clip to joined mask
     elev_mask = np.where(sitenc['ELEVATION'].values == NODATA, 0, 1)
@@ -579,7 +576,7 @@ def main(cfg):
                          format='NETCDF4_CLASSIC')
 
     # convert to compressed netcdf format
-    log.info("Building compressed format netcdf files")
+    log.info("Building compressed format netCDF files")
     ids_2d, comp_sitenc = build_compressed(sitenc)
     _, comp_landformnc = build_compressed(landformnc)
     
