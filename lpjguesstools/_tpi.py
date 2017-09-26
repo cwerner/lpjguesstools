@@ -36,7 +36,7 @@ def create_kernel(radius=2, invert=False):
     return k
 
 
-def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False, TYPE='SIMPLIFIED'):
+def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False, TYPE='SIMPLE'):
     """Classify DEM to tpi300 array according to Weiss 2001 """
 
     # Parameters:
@@ -77,7 +77,7 @@ def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False, TYPE=
         tpi_classes[(tpi < mz10)]                                   = 6 # valleys
 
     # simplified:
-    if TYPE == 'SIMPLIFIED':
+    if TYPE == 'SIMPLE':
         # according to Tagil & Jenness (2008) Science Alert doi:10.3923/jas.2008.910.921
         mz10, pz10 = np.percentile(tpi, [100-84.13, 84.13])
         tpi_classes = np.ones( tpi.shape ) * NODATA
