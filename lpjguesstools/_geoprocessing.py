@@ -115,7 +115,6 @@ def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source
 
 def analyze_filename(fname):
     """Analyze passed filename for zip components"""
-    
     if fname[-4:] == '.zip':
         # default hgt in zip (SRTM1) - specific naming convention for SRTM1 1arc files
         bname = os.path.basename(fname).replace('.zip', '').split('.')[0] + '.hgt'

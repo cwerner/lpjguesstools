@@ -202,19 +202,18 @@ def create_stats_table(df, var):
     return df_[new_col_order]
 
 
-def compute_landforms(glob_string, shp_mask_dir, tilestore_path='tiles', cutoff=1.0):
+def compute_landforms(cfg):
     """Compute landform units based on elevation, slope, aspect and tpi classes."""
 
     # define the final landform classes (now with elevation brackets)
-    # SIMPLE: reduced number of lf classes, more elevation differences
-    log.warn('SIMPLE classification hardcoded atm')
-    lf_classes, lf_ele_levels = define_landform_classes(200, 6000, TYPE='SIMPLE')
+    lf_classes, lf_ele_levels = define_landform_classes(200, 6000, TYPE=cfg.CLASSIFICATION)
 
-    if glob_string is not None:
+
+    if cfg.SRTMSTORE_PATH is not None:
         
         # if glob_string is a directory, add wildcard for globbing
-        if os.path.isdir(glob_string):
-            glob_string = os.path.join(glob_string, '*')
+        if os.path.isdir(cfg.SRTMSTORE_PATH):
+            glob_string = os.path.join(cfg.SRTMSTORE_PATH, '*')
         dem_files = sorted(glob.glob(glob_string))
 
         for dem_file in dem_files:
@@ -226,10 +225,10 @@ def compute_landforms(glob_string, shp_mask_dir, tilestore_path='tiles', cutoff=
             str_lon = fname[3:7]
             
             # if tiles don't exist process them
-            if not tile_already_processed(fname, tilestore_path):        
+            if not tile_already_processed(fname, cfg.TILESTORE_PATH):        
                 log.info('processing: %s (%s)' % (dem_file, datetime.datetime.now()))
 
-                shp_glob_string = os.path.join(shp_mask_dir, str_lon + str_lat + '*.shp')
+                shp_glob_string = os.path.join(cfg.WATERMASKSTORE_PATH, str_lon + str_lat + '*.shp')
                 matched_shp_file = match_watermask_shpfile(shp_glob_string.lower())
                 
                 ds_srtm1 = compute_spatial_dataset(dem_file, fname_shp=matched_shp_file)
@@ -239,29 +238,29 @@ def compute_landforms(glob_string, shp_mask_dir, tilestore_path='tiles', cutoff=
                     # reclass
                     if tile != None:
                         classify_aspect(tile)
-                        classify_landform(tile, elevation_levels=lf_ele_levels, TYPE='SIMPLE')            
+                        classify_landform(tile, elevation_levels=lf_ele_levels, TYPE=cfg.CLASSIFICATION)            
                         
                         # store file in tilestore
                         lon, lat = get_center_coord(tile)
                         lonlat_string = convert_float_coord_to_string((lon,lat))
-                        tile.to_netcdf(os.path.join(tilestore_path, \
+                        tile.to_netcdf(os.path.join(cfg.TILESTORE_PATH, \
                                        "srtm1_processed_%s.nc" % lonlat_string)) 
                                
     
-    available_tiles = glob.glob(os.path.join(tilestore_path, '*.nc'))
+    available_tiles = glob.glob(os.path.join(cfg.TILESTORE_PATH, '*.nc'))
     
     if len(available_tiles) == 0:
-        log.error('No processed tiles available in directory "%s"' % tilestore_path)
+        log.error('No processed tiles available in directory "%s"' % cfg.TILESTORE_PATH)
         exit()
     tiles = sorted(available_tiles)
     
     if not tile_files_compatible(tiles):
-        log.error('Tile files in %s are not compatible.' % tilestore_path)
+        log.error('Tile files in %s are not compatible.' % cfg.TILESTORE_PATH)
 
     tiles_stats = []
     for tile in tiles:
         ds = xr.open_dataset(tile, decode_cf=False)
-        lf_stats = get_tile_summary(ds, cutoff=cutoff)
+        lf_stats = get_tile_summary(ds, cutoff=cfg.CUTOFF)
         number_of_ids = len(lf_stats)
         lon, lat = get_center_coord(ds)
         
@@ -535,10 +534,7 @@ def main(cfg):
     log.info("computing landforms")
     
     # TODO: find a better way to access lf_full_set (instead of passing it around)
-    df_frac, df_elev, df_slope, lf_full_set = compute_landforms(cfg.SRTMSTORE_PATH,
-                                                                cfg.WATERMASKSTORE_PATH,
-                                                                tilestore_path=cfg.TILESTORE_PATH,
-                                                                cutoff=cfg.CUTOFF)
+    df_frac, df_elev, df_slope, lf_full_set = compute_landforms(cfg)
     
     # section 2:
     # build netcdfs

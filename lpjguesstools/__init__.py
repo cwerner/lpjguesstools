@@ -29,14 +29,12 @@ try:
     import colorlog
     class MultiLineFormatterColor(colorlog.ColoredFormatter):
         def format(self, record):
-            # colorlog mod
+            record.__dict__.update(colorlog.escape_codes)
             record.log_color = self.color(self.log_colors, record.levelname)
-            record.reset = True
 
             str = logging.Formatter.format(self, record)
             header, footer = str.split(record.message)
             str = str.replace('\n', '\n' + ' ' * len(header))
-            
             return str
     CONS_FORMAT = "[%(log_color)s%(levelname)-8s%(reset)s] %(log_color)s%(message)s%(reset)s"
 
