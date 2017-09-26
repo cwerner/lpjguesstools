@@ -39,7 +39,7 @@ import xarray as xr
 from _geoprocessing import compute_spatial_dataset, classify_aspect, \
                            classify_landform, get_center_coord, \
                            split_srtm1_dataset, get_global_attr, \
-                           analyze_filename
+                           analyze_filename_dem
 
 log = logging.getLogger(__name__)
 
@@ -149,7 +149,7 @@ def tile_already_processed(fname, TILESTORE_PATH):
         source_attr = get_global_attr(xr.open_dataset(existing_tile), 'source')
         if source_attr != None:
             # TODO: add second check (version?)
-            _, source_name = analyze_filename(fname)
+            _, source_name = analyze_filename_dem(fname)
             if source_name == source_attr:
                 return True
     return False    
@@ -157,12 +157,26 @@ def tile_already_processed(fname, TILESTORE_PATH):
 
 def match_watermask_shpfile(glob_string):
     """Check if the generated shp glob_string exists."""
+    found=False
     if len(glob.glob(glob_string)) == 0:
         shp = None
     elif len(glob.glob(glob_string)) == 1:
         shp = glob.glob(glob_string)[0]
+        found = True
     else:
         log.error("Too many shape files.")
+        exit()
+                
+    # second try: look for zip file
+    if found is False:
+        shp = glob_string.replace(".shp", ".zip")
+        if len(glob.glob(shp)) == 0:
+            shp = None
+        elif len(glob.glob(shp)) == 1:
+            shp = glob.glob(shp)[0]
+        else:
+            log.error("Too many shape files.")
+            exit()
     return shp
 
 
@@ -238,7 +252,7 @@ def convert_dem_files(cfg, lf_ele_levels):
         # if glob_string is a directory, add wildcard for globbing
         if os.path.isdir(cfg.SRTMSTORE_PATH):
             glob_string = os.path.join(cfg.SRTMSTORE_PATH, '*')
-        dem_files = sorted(glob.glob(glob_string))
+        dem_files = sorted(glob.glob(cfg.SRTMSTORE_PATH))
 
         for dem_file in dem_files:
             fname = os.path.basename(dem_file)

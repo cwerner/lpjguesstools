@@ -112,7 +112,7 @@ def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source
     return ds
 
 
-def analyze_filename(fname):
+def analyze_filename_dem(fname):
     """Analyze passed filename for zip components"""
     if fname[-4:] == '.zip':
         # default hgt in zip (SRTM1) - specific naming convention for SRTM1 1arc files
@@ -127,11 +127,26 @@ def analyze_filename(fname):
     return (fname, source_name)
 
 
+def analyze_filename_shp(fname):
+    """Analyze passed filename for zip components"""
+    if fname[-4:] == '.zip':
+        # default hgt in zip (SRTM1) - specific naming convention for SRTM1 1arc files
+        bname = os.path.basename(fname).replace('.zip', '').split('.')[0] + '.shp'
+        fname = 'zip://%s' % fname #, bname)
+        source_name = bname
+    else:
+        if fname[-4:] not in ['.shp']:
+            log.error('Shapefile file has unknown file suffix.')
+            exit()
+        source_name = os.path.basename(fname)
+    return (fname, source_name)
+
+
 def compute_spatial_dataset(fname, fname_shp=None):
     """Take a GTiff file name and return a xarray datasets of dem, slope, 
     aspect and water mask layers."""
     
-    fname, source_name = analyze_filename(fname)
+    fname, source_name = analyze_filename_dem(fname)
 
     log.info('Opening file %s ...' % fname)
 
@@ -147,6 +162,7 @@ def compute_spatial_dataset(fname, fname_shp=None):
         dem_mask = ~np.ma.getmaskarray(dem)
         
         if fname_shp != None:
+            fname_shp, source_name = analyze_filename_shp(fname_shp)
             log.info("Masking water bodies")
             with fiona.open(fname_shp) as shp:
                 geoms = [feature["geometry"] for feature in shp]
@@ -206,10 +222,9 @@ def compute_spatial_dataset(fname, fname_shp=None):
                         dem_mask = ds_utm.read(2)
 
                         if dem_mask.sum() == 0:
-                            log.info('We have ZERO gaps... Proceed.')
                             dem_filled = dem.copy()                        
                         else:
-                            log.info('We have gaps... Filling.')
+                            log.debug('We have NoData gaps in DEM... filling')
                             # gapfill data
                             indices = scipy.ndimage.distance_transform_edt(np.invert(dem_mask.astype('bool')), 
                                 return_distances=False, 
@@ -221,6 +236,7 @@ def compute_spatial_dataset(fname, fname_shp=None):
                         dx, dy = affine[0], affine[4]
                         if dx != -dy:
                             log.error("Cell sizes not square. Abort.")
+                            exit()
                         
                         Sx, Sy = calc_slope_components(dem_filled, dx)
                         slope = calc_slope(Sx, Sy)
