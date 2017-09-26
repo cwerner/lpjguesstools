@@ -230,7 +230,7 @@ def compute_spatial_dataset(fname, fname_shp=None):
                         
                         # calculate tpi (now in utm)
                         landform = calculate_tpi(dem_filled, slope, 300, 
-                                                 res=dx, TYPE='SIMPLIFIED')
+                                                 res=dx, TYPE='SIMPLE')
 
                         # write slope, aspect to ds_utm
                         ds_utm.write(slope.astype('float64'), 3)
@@ -294,7 +294,7 @@ def get_center_coord(ds):
     return (lon_c, lat_c)
         
 
-def classify_aspect(ds, TYPE='SIMPLIFIED'):
+def classify_aspect(ds, TYPE='SIMPLE'):
     """Classify dataarray from continuous aspect to 1,2,3,4. or 1, 2"""
     
     # TODO: Check if we need only northern and southern aspect classes for
@@ -307,11 +307,11 @@ def classify_aspect(ds, TYPE='SIMPLIFIED'):
         asp_cl[(aspect >= 45)  & (aspect < 135)] = 2    # East
         asp_cl[(aspect >= 135) & (aspect < 225)] = 3    # South
         asp_cl[(aspect >= 225) & (aspect < 315)] = 4    # West
-    elif TYPE == 'SIMPLIFIED':
+    elif TYPE == 'SIMPLE':
         asp_cl[(aspect >= 270) | (aspect <  90)] = 1    # North
         asp_cl[(aspect  < 270) & (aspect >= 90)] = 3    # South
     else:
-        log.error('Currently only classifiation schemes WEISS, SIMPLIFIED supported.')
+        log.error('Currently only classifiation schemes WEISS, SIMPLE supported.')
 
     asp_cl = np.ma.masked_where(ds['mask'] == 0, asp_cl).filled(NODATA)
     ds['aspect_class'] = xr.full_like(ds['aspect'], NODATA)
@@ -320,19 +320,19 @@ def classify_aspect(ds, TYPE='SIMPLIFIED'):
     return ds
 
 
-def classify_landform(ds, elevation_levels=[], TYPE='SIMPLIFIED'):
+def classify_landform(ds, elevation_levels=[], TYPE='SIMPLE'):
     """Subdivide landform classes by aspect class."""        
     SHAPE = ds['mask'].shape
     lf_cl = np.ma.masked_array(np.ones_like(ds['mask'].values), mask=ds['mask'].values)
     
     # depending on classifiaction scheme we need different slope classes that 
     # have an aspect component
-    if TYPE == 'SIMPLIFIED':
+    if TYPE == 'SIMPLE':
         aspect_lf = [3]
     elif TYPE == 'WEISS':
         aspect_lf = [2,3,5]
     else:
-        log.error('Currently only classifiation schemes WEISS, SIMPLIFIED supported.')
+        log.error('Currently only classifiation schemes WEISS, SIMPLE supported.')
     set_global_attr(ds, 'lgt.classification', TYPE.lower())
     
     aspect_lfs = (ds['aspect_class'].to_masked_array() > 0) & \

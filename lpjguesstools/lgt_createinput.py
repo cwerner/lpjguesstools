@@ -23,6 +23,7 @@ email: christian.werner@senkenberg.de
 2017/02/07
 """
 
+import click
 from collections import Counter, OrderedDict
 import copy
 import datetime
@@ -45,6 +46,7 @@ log = logging.getLogger(__name__)
 # import constants
 from . import NODATA
 from . import defaultAttrsDA
+from . import EPILOG
 
 def convert_float_coord_to_string(coord, p=2):
     """Convert a (lon,lat) coord to string."""
@@ -58,7 +60,7 @@ def convert_float_coord_to_string(coord, p=2):
     return coord_s
 
 
-def define_landform_classes(step, limit, TYPE='SIMPLIFIED'):
+def define_landform_classes(step, limit, TYPE='SIMPLE'):
     """Define the landform classes."""
     
     # Parameters:
@@ -73,7 +75,7 @@ def define_landform_classes(step, limit, TYPE='SIMPLIFIED'):
     #
     #  slope:
     #
-    #  Name         SIMPLIFIED     WEISS
+    #  Name           SIMPLE     WEISS
     #
     #  hilltop          1           1
     #  upper slope                  2*
@@ -85,7 +87,7 @@ def define_landform_classes(step, limit, TYPE='SIMPLIFIED'):
     #  
     #  aspect:
     #
-    #  Name         SIMPLIFIED     WEISS
+    #  Name           SIMPLE     WEISS
     #
     #  north             1          1
     #  east              2
@@ -98,14 +100,14 @@ def define_landform_classes(step, limit, TYPE='SIMPLIFIED'):
         lf_full_set = []
         for e in ele_cnt:
             lf_full_set += [x+(100*e) for x in lf_set]
-    elif TYPE == 'SIMPLIFIED':
-        # TYPE: SIMPLIFIED (1:hilltop, 3:midslope, 4:flat, 6:valley)
+    elif TYPE == 'SIMPLE':
+        # TYPE: SIMPLE (1:hilltop, 3:midslope, 4:flat, 6:valley)
         lf_set = [10,31,33,40,60]
         lf_full_set = []
         for e in ele_cnt:
             lf_full_set += [x+(100*e) for x in lf_set]
     else:
-        log.error('Currently only classifiation schemes WEISS, SIMPLIFIED supported.')
+        log.error('Currently only classifiation schemes WEISS, SIMPLE supported.')
 
 
     return (lf_full_set, ele_breaks)
@@ -203,46 +205,55 @@ def create_stats_table(df, var):
 def compute_landforms(glob_string, shp_mask_dir, tilestore_path='tiles', cutoff=1.0):
     """Compute landform units based on elevation, slope, aspect and tpi classes."""
 
-    dem_files = sorted(glob.glob(glob_string))
-
     # define the final landform classes (now with elevation brackets)
-    # SIMPLIFIED: reduced number of lf classes, more elevation differences
-    lf_classes, lf_ele_levels = define_landform_classes(200, 6000, TYPE='SIMPLIFIED')
+    # SIMPLE: reduced number of lf classes, more elevation differences
+    log.warn('SIMPLE classification hardcoded atm')
+    lf_classes, lf_ele_levels = define_landform_classes(200, 6000, TYPE='SIMPLE')
 
-    for dem_file in dem_files:
-        fname = os.path.basename(dem_file)
-        fdir  = os.path.dirname(dem_file)
+    if glob_string is not None:
         
-        # SRTM1 default nameing convention
-        str_lat = fname[:3]
-        str_lon = fname[3:7]
-        
-        # if tiles don't exist process them
-        if not tile_already_processed(fname, tilestore_path):        
-            log.info('processing: %s (%s)' % (dem_file, datetime.datetime.now()))
+        # if glob_string is a directory, add wildcard for globbing
+        if os.path.isdir(glob_string):
+            glob_string = os.path.join(glob_string, '*')
+        dem_files = sorted(glob.glob(glob_string))
 
-            shp_glob_string = os.path.join(shp_mask_dir, str_lon + str_lat + '*.shp')
-            matched_shp_file = match_watermask_shpfile(shp_glob_string.lower())
+        for dem_file in dem_files:
+            fname = os.path.basename(dem_file)
+            fdir  = os.path.dirname(dem_file)
             
-            ds_srtm1 = compute_spatial_dataset(dem_file, fname_shp=matched_shp_file)
-            tiles = split_srtm1_dataset(ds_srtm1)
+            # SRTM1 default nameing convention
+            str_lat = fname[:3]
+            str_lon = fname[3:7]
+            
+            # if tiles don't exist process them
+            if not tile_already_processed(fname, tilestore_path):        
+                log.info('processing: %s (%s)' % (dem_file, datetime.datetime.now()))
 
-            for tile in tiles:
-                # reclass
-                if tile != None:
-                    classify_aspect(tile)
-                    classify_landform(tile, elevation_levels=lf_ele_levels, TYPE='SIMPLIFIED')            
-                    
-                    # store file in tilestore
-                    lon, lat = get_center_coord(tile)
-                    lonlat_string = convert_float_coord_to_string((lon,lat))
-                    tile.to_netcdf(os.path.join(tilestore_path, \
-                                   "srtm1_processed_%s.nc" % lonlat_string)) 
+                shp_glob_string = os.path.join(shp_mask_dir, str_lon + str_lat + '*.shp')
+                matched_shp_file = match_watermask_shpfile(shp_glob_string.lower())
+                
+                ds_srtm1 = compute_spatial_dataset(dem_file, fname_shp=matched_shp_file)
+                tiles = split_srtm1_dataset(ds_srtm1)
+
+                for tile in tiles:
+                    # reclass
+                    if tile != None:
+                        classify_aspect(tile)
+                        classify_landform(tile, elevation_levels=lf_ele_levels, TYPE='SIMPLE')            
+                        
+                        # store file in tilestore
+                        lon, lat = get_center_coord(tile)
+                        lonlat_string = convert_float_coord_to_string((lon,lat))
+                        tile.to_netcdf(os.path.join(tilestore_path, \
+                                       "srtm1_processed_%s.nc" % lonlat_string)) 
                                
-  
-    # section 2
-    log.info("START OF SECTION2")
-    tiles = sorted(glob.glob(os.path.join(tilestore_path, '*.nc')))
+    
+    available_tiles = glob.glob(os.path.join(tilestore_path, '*.nc'))
+    
+    if len(available_tiles) == 0:
+        log.error('No processed tiles available in directory "%s"' % tilestore_path)
+        exit()
+    tiles = sorted(available_tiles)
     
     if not tile_files_compatible(tiles):
         log.error('Tile files in %s are not compatible.' % tilestore_path)
@@ -507,18 +518,9 @@ def create_gridlist(ds):
     return '\n'.join(outL) + '\n'
     
 
-def main():
+def main(cfg):
     """Main Script."""    
     
-    # defaults (will move to cli)
-    SRTMSTORE_STRING = "srtm1/*.zip"
-    WATERMASKSTORE_PATH = "srtm1_shp_mask"
-    GRIDLIST_TXT = 'gridlist_CL.txt'
-    # [6, 40, 12, 55] Deutschland
-    REGION = [-76, -56, -66, -16]    # lon1, lat1, lon2, lat2
-    TILESTORE_PATH = 'processed'
-    CUTOFF = 1.0    # % area required to keep landform
-
     # default soil and elevation data (contained in package)
     import pkg_resources
     SOIL_NC      = pkg_resources.resource_filename(__name__, 'data/GLOBAL_WISESOIL_DOM_05deg.nc')
@@ -533,15 +535,15 @@ def main():
     log.info("computing landforms")
     
     # TODO: find a better way to access lf_full_set (instead of passing it around)
-    df_frac, df_elev, df_slope, lf_full_set = compute_landforms(SRTMSTORE_STRING,
-                                                                WATERMASKSTORE_PATH,
-                                                                tilestore_path=TILESTORE_PATH,
-                                                                cutoff=CUTOFF)
+    df_frac, df_elev, df_slope, lf_full_set = compute_landforms(cfg.SRTMSTORE_PATH,
+                                                                cfg.WATERMASKSTORE_PATH,
+                                                                tilestore_path=cfg.TILESTORE_PATH,
+                                                                cutoff=cfg.CUTOFF)
     
     # section 2:
     # build netcdfs
-    log.info("building 2d netcdf files")
-    sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=REGION)
+    log.info("Building 2d netcdf files")
+    sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
     landformnc = build_landform_netcdf(lf_full_set, df_frac, df_elev, df_slope, refnc=sitenc)
     
     # clip to joined mask
@@ -553,29 +555,108 @@ def main():
     landformnc = mask_dataset(landformnc, valid_mask)
 
     # write 2d/ 3d netcdf files
-    sitenc.to_netcdf('sites_2d.nc', format='NETCDF4_CLASSIC')
-    landformnc.to_netcdf('landforms_2d.nc', format='NETCDF4_CLASSIC')
+    sitenc.to_netcdf(os.path.join(cfg.OUTDIR, 'sites_2d.nc'), 
+                     format='NETCDF4_CLASSIC')
+    landformnc.to_netcdf(os.path.join(cfg.OUTDIR, 'landforms_2d.nc'),
+                         format='NETCDF4_CLASSIC')
 
     # convert to compressed netcdf format
-    log.info("building compressed format netcdf files")
+    log.info("Building compressed format netcdf files")
     ids_2d, comp_sitenc = build_compressed(sitenc)
     _, comp_landformnc = build_compressed(landformnc)
     
     # write netcdf files
-    ids_2d.to_netcdf("land_ids_2d.nc", format='NETCDF4_CLASSIC')
-    comp_landformnc.to_netcdf("landform_data.nc", format='NETCDF4_CLASSIC')
-    comp_sitenc.to_netcdf("site_data.nc", format='NETCDF4_CLASSIC')
+    ids_2d.to_netcdf(os.path.join(cfg.OUTDIR, "land_ids_2d.nc"), 
+                     format='NETCDF4_CLASSIC')
+    comp_landformnc.to_netcdf(os.path.join(cfg.OUTDIR, "landform_data.nc"), 
+                              format='NETCDF4_CLASSIC')
+    comp_sitenc.to_netcdf(os.path.join(cfg.OUTDIR, "site_data.nc"), 
+                          format='NETCDF4_CLASSIC')
 
     # gridlist file
-    log.info("creating gridlist file")
+    log.info("Creating gridlist file")
     gridlist = create_gridlist(ids_2d)
-    open(GRIDLIST_TXT, 'w').write(gridlist)
+    open(os.path.join(cfg.OUTDIR, cfg.GRIDLIST_TXT), 'w').write(gridlist)
 
-    log.info("done")
-
-
-if __name__ == '__main__':
-    """ Global entry point """    
-    main()
+    log.info("Done")
 
 
+# command line arguments
+CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
+click.Context.get_usage = click.Context.get_help
+
+@click.command(context_settings=CONTEXT_SETTINGS, epilog=EPILOG)
+
+@click.option('--classfication', type=click.Choice(['SIMPLE', 'WEISS']), 
+                    default='SIMPLE', show_default=True,
+                    help='classification scheme')
+
+@click.option('--cutoff', default=1.0, show_default=True,
+                    help='required area fraction [%]')
+
+@click.option('--dems', metavar='PATH',
+                    help='source for DEM files')
+
+@click.option('--extent', nargs=4, type=click.FLOAT, metavar='LON1 LAT1 LON2 LAT2',
+                    help='extent of output netcdf files')
+
+@click.option('--gridlist', default='gridlist.txt', 
+                    help='name of created gridlist file')
+
+@click.option('--masks', metavar='PATH',
+                    help='source for water masks (shp)')
+
+@click.option('--verbose', is_flag=True, 
+                    help='increase logging info')
+
+@click.version_option()
+
+@click.argument('storage', type=click.Path(exists=True))
+@click.argument('outdir', type=click.Path(exists=True)) 
+
+def cli(cutoff, dems, masks, gridlist, extent, classfication, storage, outdir, verbose):
+    """LPJ-GUESS 4.0 subpixel mode input creation tool
+    
+    This tools creates site and landform netCDF files and a gridlist file
+    from SRTM1 (or potentially other) elevation data.
+     
+    """
+    
+    # example:
+    #./lgt_createinput.py processed output --dems=srtm1/*.zip --masks=srtm1_shp_mask --extent -76 -56 -66 -16
+
+    if verbose:
+        log.setLevel(logging.DEBUG)
+    
+    if dems is not None:
+        SRTMSTORE_PATH = dems
+    
+    if masks is not None:
+        WATERMASKSTORE_PATH = masks
+
+    REGION = None
+    if len(extent) == 4:
+        REGION = list(extent)
+        
+    # TODO: move this to a helper file
+    # data store to hold setup/ runtime config data
+    class Bunch(object):
+        def __init__(self, adict):
+            self.__dict__.update(adict)
+    
+    # the setup dictionary to convert into a bunch obj
+    config_data=dict(SRTMSTORE_PATH=dems,
+                     WATERMASKSTORE_PATH=masks,
+                     TILESTORE_PATH=storage,
+                     REGION=REGION,
+                     CLASSIFICATION=classfication,
+                     CUTOFF=cutoff,
+                     OUTPUT_PATH=outdir,
+                     GRIDLIST_TXT=gridlist,
+                     OUTDIR=outdir)
+    
+    # TODO: change logging level based on verbose flag
+    cfg = Bunch(config_data)
+
+    main(cfg)
+    

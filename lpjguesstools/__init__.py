@@ -31,7 +31,7 @@ FILE_FORMAT = "%(asctime)s [%(levelname)-8s] %(message)s (%(filename)s:%(lineno)
 lfCons = MultiLineFormatter(CONS_FORMAT, datefmt='%Y-%m-%d %H:%M:%S')
 lfFile = MultiLineFormatter(FILE_FORMAT, datefmt='%Y-%m-%d %H:%M:%S')
 
-rootLogger = logging.getLogger()
+rootLogger = logging.getLogger('lpjguesstools')
 rootLogger.setLevel(logging.DEBUG)
 
 hCons = logging.StreamHandler()
@@ -50,3 +50,7 @@ defaultAttrsDA = {
         '_FillValue':    NODATA,
         'missing_value': NODATA
         }
+        
+EPILOG = """Christian Werner, SENCKENBERG Biodiversity and Climate Research Centre (BiK-F)
+email: christian.werner@senkenberg.de
+2017/02/07"""
