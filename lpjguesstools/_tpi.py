@@ -4,9 +4,6 @@
 # (T)opographic (P)osition (I)ndex calculations
 #
 # according to: Weiss, A.: Topographic position and landforms analysis, pp. 200–200. 2001.
-#
-# TODO:
-# - the calculations are currently hardcoded for 30m DEMs, make this universal
 
 import logging
 import math

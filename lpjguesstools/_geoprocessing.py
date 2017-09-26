@@ -3,17 +3,16 @@
 
 import fiona
 import logging
-import math
 import numpy as np
+import os
 import rasterio
 from rasterio.warp import calculate_default_transform
 from rasterio.enums import Resampling
 from rasterio.mask import mask
-import os
 import scipy
 import xarray as xr
 
-from _tpi import calculate_tpi
+from ._tpi import calculate_tpi
 
 log = logging.getLogger(__name__)
 
