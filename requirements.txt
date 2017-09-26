@@ -1,6 +1,8 @@
 # Dev/Deployment
 param
 pyyaml
+colorlog
+Click
 fiona
 rasterio>=1.0a9
 xarray>=0.9.6

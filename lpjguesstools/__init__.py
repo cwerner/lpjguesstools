@@ -24,11 +24,31 @@ class MultiLineFormatter(logging.Formatter):
         str = str.replace('\n', '\n' + ' ' * len(header))
         return str
 
+# optional colored console logger (nice!)
+try:
+    import colorlog
+    class MultiLineFormatterColor(colorlog.ColoredFormatter):
+        def format(self, record):
+            # colorlog mod
+            record.log_color = self.color(self.log_colors, record.levelname)
+            record.reset = True
 
-CONS_FORMAT = "[%(levelname)-8s] %(message)s"
+            str = logging.Formatter.format(self, record)
+            header, footer = str.split(record.message)
+            str = str.replace('\n', '\n' + ' ' * len(header))
+            
+            return str
+    CONS_FORMAT = "[%(log_color)s%(levelname)-8s%(reset)s] %(log_color)s%(message)s%(reset)s"
+
+except ImportError:
+    # both formatters should use the default (non-color)
+    MultiLineFormatterColor = MultiLineFormatter
+    CONS_FORMAT = "[%(levelname)-8s] %(message)s"
+
+
 FILE_FORMAT = "%(asctime)s [%(levelname)-8s] %(message)s (%(filename)s:%(lineno)s)"
 
-lfCons = MultiLineFormatter(CONS_FORMAT, datefmt='%Y-%m-%d %H:%M:%S')
+lfCons = MultiLineFormatterColor(CONS_FORMAT, datefmt='%Y-%m-%d %H:%M:%S')
 lfFile = MultiLineFormatter(FILE_FORMAT, datefmt='%Y-%m-%d %H:%M:%S')
 
 rootLogger = logging.getLogger('lpjguesstools')
@@ -53,4 +73,4 @@ defaultAttrsDA = {
         
 EPILOG = """Christian Werner, SENCKENBERG Biodiversity and Climate Research Centre (BiK-F)
 email: christian.werner@senkenberg.de
-2017/02/07"""
+2017/09/26"""
