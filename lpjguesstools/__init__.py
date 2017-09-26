@@ -49,12 +49,12 @@ FILE_FORMAT = "%(asctime)s [%(levelname)-8s] %(message)s (%(filename)s:%(lineno)
 lfCons = MultiLineFormatterColor(CONS_FORMAT, datefmt='%Y-%m-%d %H:%M:%S')
 lfFile = MultiLineFormatter(FILE_FORMAT, datefmt='%Y-%m-%d %H:%M:%S')
 
-rootLogger = logging.getLogger('lpjguesstools')
+rootLogger = logging.getLogger(__name__)
 rootLogger.setLevel(logging.DEBUG)
 
 hCons = logging.StreamHandler()
 hCons.setFormatter(lfCons)
-hCons.setLevel(logging.INFO)
+hCons.setLevel(logging.DEBUG)
 rootLogger.addHandler(hCons)
 
 hFile = RotatingFileHandler("{0}/{1}.log".format(logPath, fileName), maxBytes=10000)

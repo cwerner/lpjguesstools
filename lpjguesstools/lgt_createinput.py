@@ -34,6 +34,7 @@ import numpy as np
 import os
 import pandas as pd
 import string
+import time
 import xarray as xr
 
 from _geoprocessing import compute_spatial_dataset, classify_aspect, \
@@ -47,6 +48,19 @@ log = logging.getLogger(__name__)
 from . import NODATA
 from . import defaultAttrsDA
 from . import EPILOG
+
+# quick helpers
+# TODO: move to a dedicated file later
+
+def time_dec(func):
+    """A decorator to measure execution time of function"""
+    def wrapper(*arg, **kwargs):
+        t = time.time()
+        res = func(*arg, **kwargs)
+        log.debug('DURATION: <%s> : ' % func.func_name + str(time.time()-t))
+        return res
+    return wrapper
+
 
 def convert_float_coord_to_string(coord, p=2):
     """Convert a (lon,lat) coord to string."""
@@ -202,6 +216,7 @@ def create_stats_table(df, var):
     return df_[new_col_order]
 
 
+@time_dec
 def compute_landforms(cfg):
     """Compute landform units based on elevation, slope, aspect and tpi classes."""
 
@@ -371,6 +386,7 @@ def build_site_netcdf(soilref, elevref, extent=None):
     return dsout
 
 
+@time_dec
 def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, refnc=None):
     """Build landform netcdf based on refnc dims and datatables."""
     
@@ -622,8 +638,10 @@ def cli(cutoff, dems, masks, gridlist, extent, classfication, storage, outdir, v
     #./lgt_createinput.py processed output --dems=srtm1/*.zip --masks=srtm1_shp_mask --extent -76 -56 -66 -16
 
     if verbose:
-        log.setLevel(logging.DEBUG)
-    
+        logging.getLogger(__name__).setLevel(logging.DEBUG)
+    else:
+        logging.getLogger(__name__).setLevel(logging.INFO)
+        
     if dems is not None:
         SRTMSTORE_PATH = dems
     
