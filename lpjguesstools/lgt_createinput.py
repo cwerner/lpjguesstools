@@ -62,6 +62,20 @@ def time_dec(func):
     return wrapper
 
 
+class Bunch(object):
+    """Simple data storage class."""
+    def __init__(self, adict):
+        self.__dict__.update(adict)
+        
+
+varD = {'TOTC': ('SOC', 'Soil Organic Carbon', 'percent', 0.1),
+        'SDTO': ('SAND', 'Sand', 'percent', 1.0),
+        'STPC': ('SILT', 'Silt', 'percent', 1.0),
+        'CLPC': ('CLAY', 'Clay', 'percent', 1.0)}
+
+soil_vars = sorted(varD.keys())
+
+
 def convert_float_coord_to_string(coord, p=2):
     """Convert a (lon,lat) coord to string."""
     lon, lat = round(coord[0], p), round(coord[1], p)
@@ -292,14 +306,6 @@ def compute_landforms(cfg):
     
     # return the dataframes and the list of all possible landform units
     return (frac_lf, elev_lf, slope_lf, lf_classes)
-
-
-varD = {'TOTC': ('SOC', 'Soil Organic Carbon', 'percent', 0.1),
-        'SDTO': ('SAND', 'Sand', 'percent', 1.0),
-        'STPC': ('SILT', 'Silt', 'percent', 1.0),
-        'CLPC': ('CLAY', 'Clay', 'percent', 1.0)}
-
-soil_vars = sorted(varD.keys())
 
 
 def is_3d(ds, v):
@@ -652,11 +658,6 @@ def cli(cutoff, dems, masks, gridlist, extent, classfication, storage, outdir, v
     if len(extent) == 4:
         REGION = list(extent)
         
-    # TODO: move this to a helper file
-    # data store to hold setup/ runtime config data
-    class Bunch(object):
-        def __init__(self, adict):
-            self.__dict__.update(adict)
     
     # the setup dictionary to convert into a bunch obj
     config_data=dict(SRTMSTORE_PATH=dems,
