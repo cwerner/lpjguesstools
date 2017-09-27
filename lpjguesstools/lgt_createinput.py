@@ -39,7 +39,7 @@ import xarray as xr
 from _geoprocessing import compute_spatial_dataset, classify_aspect, \
                            classify_landform, get_center_coord, \
                            split_srtm1_dataset, get_global_attr, \
-                           analyze_filename_dem
+                           analyze_filename_dem, set_global_attr
 
 log = logging.getLogger(__name__)
 
@@ -426,7 +426,7 @@ def build_site_netcdf(soilref, elevref, extent=None):
 
 
 @time_dec
-def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, refnc=None):
+def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevation_levels, refnc=None):
     """Build landform netcdf based on refnc dims and datatables."""
     
     dsout = xr.Dataset()
@@ -477,8 +477,17 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, refnc=No
     for dv in dsout.data_vars:
         dsout[dv].attrs.update(defaultAttrsDA)
 
+    # register the specific landform properties (elevation steps, classfication)
+    set_global_attr(dsout, 'lgt.elevation_step', elevation_levels[1])
+    set_global_attr(dsout, 'lgt.classification', cfg.CLASSIFICATION.lower())
+
     return dsout
 
+
+def copy_global_lgt_attrs(ds, dsout):
+    """Copy global lgt attributes from source to target dataset."""
+    source_attrs = dict([(k, v) for k, v in ds.attrs.items() if 'lgt.' in k])
+    dsout.attrs.update(source_attrs)
 
 def build_compressed(ds):
     """Build LPJ-Guess 4.0 compatible compressed netcdf file."""
@@ -551,6 +560,8 @@ def build_compressed(ds):
 
         dsout[_da.name] = _da
 
+    copy_global_lgt_attrs(ds, dsout)
+
     return (ds_ids, dsout)
 
 
@@ -598,14 +609,15 @@ def main(cfg):
     convert_dem_files(cfg, lf_ele_levels)
 
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
-    print sitenc
+
     # compute stats from tiles
     df_frac, df_elev, df_slope = compute_statistics(cfg)
     
     # build netcdfs
     log.info("Building 2D netCDF files")
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
-    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, cfg, refnc=sitenc)
+    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, cfg, 
+                                       lf_ele_levels, refnc=sitenc)
     
     # clip to joined mask
     elev_mask = np.where(sitenc['ELEVATION'].values == NODATA, 0, 1)
