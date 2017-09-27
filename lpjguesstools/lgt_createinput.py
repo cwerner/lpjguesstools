@@ -263,7 +263,14 @@ def convert_dem_files(cfg, lf_ele_levels):
             str_lon = fname[3:7]
             
             # if tiles don't exist process them
-            if not tile_already_processed(fname, cfg.TILESTORE_PATH):        
+            process_tiles = True
+            if cfg.OVERWRITE:
+                process_tiles = True
+            else:
+                if tile_already_processed(fname, cfg.TILESTORE_PATH):
+                    process_tiles = False
+            
+            if process_tiles:                        
                 log.info('processing: %s (%s)' % (dem_file, datetime.datetime.now()))
 
                 shp_glob_string = os.path.join(cfg.WATERMASKSTORE_PATH, str_lon + str_lat + '*.shp')
@@ -283,7 +290,7 @@ def convert_dem_files(cfg, lf_ele_levels):
                         lonlat_string = convert_float_coord_to_string((lon,lat))
                         tile.to_netcdf(os.path.join(cfg.TILESTORE_PATH, \
                                        "srtm1_processed_%s.nc" % lonlat_string)) 
-                               
+                                   
     
 @time_dec
 def compute_statistics(cfg):
@@ -628,6 +635,9 @@ click.Context.get_usage = click.Context.get_help
 @click.option('--extent', nargs=4, type=click.FLOAT, metavar='LON1 LAT1 LON2 LAT2',
                     help='extent of output netcdf files')
 
+@click.option('--force-overwrite', is_flag=True, default=False, 
+                    help='overwrite tiles even if they already exists')
+
 @click.option('--gridlist', default='gridlist.txt', 
                     help='name of created gridlist file')
 
@@ -642,7 +652,7 @@ click.Context.get_usage = click.Context.get_help
 @click.argument('storage', type=click.Path(exists=True))
 @click.argument('outdir', type=click.Path(exists=True)) 
 
-def cli(cutoff, dems, masks, gridlist, extent, classfication, storage, outdir, verbose):
+def cli(cutoff, dems, masks, gridlist, extent, classfication, storage, outdir, verbose, force_overwrite):
     """LPJ-GUESS 4.0 subpixel mode input creation tool
     
     This tools creates site and landform netCDF files and a gridlist file
@@ -678,10 +688,13 @@ def cli(cutoff, dems, masks, gridlist, extent, classfication, storage, outdir, v
                      CUTOFF=cutoff,
                      OUTPUT_PATH=outdir,
                      GRIDLIST_TXT=gridlist,
-                     OUTDIR=outdir)
+                     OUTDIR=outdir,
+                     OVERWRITE=force_overwrite)
     
     # TODO: change logging level based on verbose flag
     cfg = Bunch(config_data)
+
+    print force_overwrite
 
     main(cfg)
     
