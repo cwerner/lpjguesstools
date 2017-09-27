@@ -358,6 +358,13 @@ def assign_to_dataarray(data, df, lf_full_set, refdata=False):
     return data
 
 
+def spatialclip_dataframe(df, extent):
+    """Clip dataframe wit lat lon columns by extent."""
+    lon1, lat1, lon2, lat2 = extent
+    return df[((df.lon >= lon1) & (df.lon <= lon2)) & 
+              ((df.lat >= lat1) & (df.lat <= lat2))]
+
+
 def build_site_netcdf(soilref, elevref, extent=None):
     """Build the site netcdf file."""
     
@@ -419,7 +426,7 @@ def build_site_netcdf(soilref, elevref, extent=None):
 
 
 @time_dec
-def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, refnc=None):
+def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, refnc=None):
     """Build landform netcdf based on refnc dims and datatables."""
     
     dsout = xr.Dataset()
@@ -441,12 +448,21 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, refnc=None):
     
     lats = refnc['lat'].values.tolist()
     lons = refnc['lon'].values.tolist()
-    print lats
-    if (((lat_min < min(lats)) or (lat_max > max(lats))) or 
-       (((lon_min < min(lons)) or (lon_max > max(lons))))):
-       log.error('DEM tiles not within specified extent.')
-       exit()   
     
+    if ((lat_min < min(lats)) | (lat_max > max(lats)) |  
+        (lon_min < min(lons)) | (lon_max > max(lons))):
+        log.warn('DEM tiles not within specified extent. Clipping.')
+
+    # potentially clip dataframes
+    frac_lf = spatialclip_dataframe(frac_lf, [min(lons), min(lats), max(lons), max(lats)])
+    slope_lf = spatialclip_dataframe(slope_lf, [min(lons), min(lats), max(lons), max(lats)])
+    elev_lf = spatialclip_dataframe(elev_lf, [min(lons), min(lats), max(lons), max(lats)])
+
+    #exit()   
+    # dump files
+    frac_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_frac.csv'), index=False)
+    slope_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_slope.csv'), index=False)
+    elev_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_elev.csv'), index=False)    
     # assign dataframe data to arrays
     da_lfcnt = assign_to_dataarray(da_lfcnt, frac_lf, lf_full_set, refdata=True)
     da_frac = assign_to_dataarray(da_frac, frac_lf, lf_full_set)
@@ -589,7 +605,7 @@ def main(cfg):
     # build netcdfs
     log.info("Building 2D netCDF files")
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
-    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, refnc=sitenc)
+    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, cfg, refnc=sitenc)
     
     # clip to joined mask
     elev_mask = np.where(sitenc['ELEVATION'].values == NODATA, 0, 1)
