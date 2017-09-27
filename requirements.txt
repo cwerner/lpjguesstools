@@ -1,8 +1,11 @@
 # Dev/Deployment
 param
+pypandoc
 pyyaml
 colorlog
 Click
 fiona
+numpy
 rasterio>=1.0a9
+scipy
 xarray>=0.9.6
