@@ -337,17 +337,24 @@ def is_3d(ds, v):
 
 def assign_to_dataarray(data, df, lf_full_set, refdata=False):
     """Place value into correct location of data array."""
+
+    
+    try:
+    	del df['lf-327680']
+        log.warn("Funny column in df! Deleting column [TODO: investigate]")
+    except:
+        pass
+
+    data[:] = NODATA
     for _, r in df.iterrows():
         if refdata:
             data.loc[r.lat, r.lon] = r.lf_cnt
         else:
-            data[:] = NODATA
             for lf in r.index[3:]:
                 if r[lf] > NODATA:
                     lf_id = int(lf[2:])
                     lf_pos = lf_full_set.index(lf_id)
-                    data.loc[lf_id, r.lat, r.lon] = r[lf]
-
+                    data.loc[dict(lf_id=lf_id, lat=r.lat, lon=r.lon)] = r[lf]
     return data
 
 
@@ -422,11 +429,11 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, refnc=None):
     
     # initiate data arrays
     _blank = np.ones(SHAPE) * NODATA
-    da_lfcnt = xr.DataArray(_blank[0,:,:].astype('i'), name='lfcnt', 
+    da_lfcnt = xr.DataArray(_blank.copy()[0,:,:].astype('i'), name='lfcnt', 
                             coords=COORDS[1:])
-    da_frac = xr.DataArray(_blank[:], name='frac', coords=COORDS)
-    da_slope = xr.DataArray(_blank[:], name='slope', coords=COORDS)
-    da_elev = xr.DataArray(_blank[:], name='elevation', coords=COORDS)
+    da_frac = xr.DataArray(_blank.copy(), name='frac', coords=COORDS)
+    da_slope = xr.DataArray(_blank.copy(), name='slope', coords=COORDS)
+    da_elev = xr.DataArray(_blank.copy(), name='elevation', coords=COORDS)
     
     # check that landform coordinates are in refnc
     lat_min, lat_max = frac_lf.lat.min(), frac_lf.lat.max()
