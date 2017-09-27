@@ -142,16 +142,16 @@ def analyze_filename_shp(fname):
     return (fname, source_name)
 
 
-def compute_spatial_dataset(fname, fname_shp=None):
+def compute_spatial_dataset(fname_dem, fname_shp=None):
     """Take a GTiff file name and return a xarray datasets of dem, slope, 
     aspect and water mask layers."""
     
-    fname, source_name = analyze_filename_dem(fname)
+    fname_dem, source_name_dem = analyze_filename_dem(fname_dem)
 
-    log.info('Opening file %s ...' % fname)
+    log.info('Opening file %s ...' % fname_dem)
 
     # open source GTiff file (in WGS84)
-    with rasterio.open(fname) as src:    
+    with rasterio.open(fname_dem) as src:    
         msrc_kwargs = src.meta.copy()
         msrc_kwargs.update(count=5)
         msrc_kwargs.update(dtype='float64')
@@ -162,7 +162,7 @@ def compute_spatial_dataset(fname, fname_shp=None):
         dem_mask = ~np.ma.getmaskarray(dem)
         
         if fname_shp != None:
-            fname_shp, source_name = analyze_filename_shp(fname_shp)
+            fname_shp, source_name_shp = analyze_filename_shp(fname_shp)
             log.info("Masking water bodies")
             with fiona.open(fname_shp) as shp:
                 geoms = [feature["geometry"] for feature in shp]
@@ -295,7 +295,7 @@ def compute_spatial_dataset(fname, fname_shp=None):
 
     # create dataset    
     ds = create_dem_dataset(dem, dem_mask, slope, aspect, landform, 
-                            info=msrc_kwargs, source=source_name)
+                            info=msrc_kwargs, source=source_name_dem)
     
     return ds
 
