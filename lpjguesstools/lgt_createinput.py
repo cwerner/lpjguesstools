@@ -296,7 +296,7 @@ def convert_dem_files(cfg, lf_ele_levels):
 def compute_statistics(cfg):
     """Extract landform statistics from tiles in tilestore."""
     available_tiles = glob.glob(os.path.join(cfg.TILESTORE_PATH, '*.nc'))
-    
+    log.debug('Number of tiles found: %d' % len(available_tiles)) 
     if len(available_tiles) == 0:
         log.error('No processed tiles available in directory "%s"' % cfg.TILESTORE_PATH)
         exit()
@@ -308,15 +308,16 @@ def compute_statistics(cfg):
 
     tiles_stats = []
     for tile in tiles:
-        ds = xr.open_dataset(tile, decode_cf=False)
-        lf_stats = get_tile_summary(ds, cutoff=cfg.CUTOFF)
-        number_of_ids = len(lf_stats)
-        lon, lat = get_center_coord(ds)
-        
-        coords = pd.Series([(round(lon,2),round(lat,2), number_of_ids) for x in range(len(lf_stats))])
-        lf_stats['coord'] = coords        
-        lf_stats.set_index(['coord', 'lf_id'], inplace=True)
-        tiles_stats.append( lf_stats )
+        log.debug('Computing statistics for tile %s' % tile)
+        with xr.open_dataset(tile, decode_cf=False) as ds:
+            lf_stats = get_tile_summary(ds, cutoff=cfg.CUTOFF)
+            number_of_ids = len(lf_stats)
+            lon, lat = get_center_coord(ds)
+            
+            coords = pd.Series([(round(lon,2),round(lat,2), number_of_ids) for x in range(len(lf_stats))])
+            lf_stats['coord'] = coords        
+            lf_stats.set_index(['coord', 'lf_id'], inplace=True)
+            tiles_stats.append( lf_stats )
 
     df = pd.concat(tiles_stats)
 
@@ -433,7 +434,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, refnc=None):
     
     lats = refnc['lat'].values.tolist()
     lons = refnc['lon'].values.tolist()
-    
+    print lats
     if (((lat_min < min(lats)) or (lat_max > max(lats))) or 
        (((lon_min < min(lons)) or (lon_max > max(lons))))):
        log.error('DEM tiles not within specified extent.')
@@ -572,7 +573,9 @@ def main(cfg):
 
     # process dem files to tiles (if not already processed)
     convert_dem_files(cfg, lf_ele_levels)
-    
+
+    sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
+    print sitenc
     # compute stats from tiles
     df_frac, df_elev, df_slope = compute_statistics(cfg)
     
