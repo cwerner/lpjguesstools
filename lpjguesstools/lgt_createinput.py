@@ -184,13 +184,13 @@ def match_watermask_shpfile(glob_string):
 def get_tile_summary(ds, cutoff=0):
     """Compute the fractional cover of the landforms in this tile."""
     
-    unique, counts = np.unique(ds['landform_class'].to_masked_array().astype('i'), return_counts=True)
-    remove_ix = np.where(unique == NODATA)
-    unique = np.delete(unique, remove_ix)
-    counts = np.delete(counts, remove_ix)
+    unique, counts = np.unique(ds['landform_class'].to_masked_array(), return_counts=True)
+    counts = np.ma.masked_array(counts, mask=unique.mask)
+    unique = np.ma.compressed(unique)
+    counts = np.ma.compressed(counts)
     total_valid = float(np.sum(counts))
     
-    df = pd.DataFrame({'lf_id': unique, 'cells': counts})
+    df = pd.DataFrame({'lf_id': unique.astype('int'), 'cells': counts})
     df['frac'] = (df['cells'] / df['cells'].sum())*100
 
     df = df[df['frac'] >= cutoff]
@@ -235,7 +235,7 @@ def create_stats_table(df, var):
     df_.columns = ['lf' + str(col) for col in df_.columns]
     df_ = df_.reset_index()
     df_[['lon', 'lat', 'lf_cnt']] = df_['coord'].apply(pd.Series)
-    
+    df_['lf_cnt'] = df_['lf_cnt'].astype(int)
     # cleanup (move lon, lat to front, drop coord col)
     df_.drop('coord', axis=1, inplace=True)
     latloncnt_cols = ['lon', 'lat', 'lf_cnt']
@@ -316,7 +316,7 @@ def compute_statistics(cfg):
             number_of_ids = len(lf_stats)
             lon, lat = get_center_coord(ds)
             
-            coords = pd.Series([(round(lon,2),round(lat,2), number_of_ids) for x in range(len(lf_stats))])
+            coords = pd.Series([(round(lon,2),round(lat,2), int(number_of_ids)) for x in range(len(lf_stats))])
             lf_stats['coord'] = coords        
             lf_stats.set_index(['coord', 'lf_id'], inplace=True)
             tiles_stats.append( lf_stats )
@@ -465,7 +465,6 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
     slope_lf = spatialclip_dataframe(slope_lf, [min(lons), min(lats), max(lons), max(lats)])
     elev_lf = spatialclip_dataframe(elev_lf, [min(lons), min(lats), max(lons), max(lats)])
 
-    #exit()   
     # dump files
     frac_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_frac.csv'), index=False)
     slope_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_slope.csv'), index=False)
