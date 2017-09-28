@@ -15,7 +15,6 @@ log = logging.getLogger(__name__)
 
 # import constants
 from . import NODATA
-from . import defaultAttrsDA
 
 def create_kernel(radius=2, invert=False):
     """Define a kernel"""

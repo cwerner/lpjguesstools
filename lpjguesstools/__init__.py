@@ -65,12 +65,7 @@ rootLogger.addHandler(hFile)
 
 # constants
 NODATA = -9999
-defaultAttrsDA = {
-        '_FillValue':    NODATA,
-        'missing_value': NODATA
-        }
-ENCODING = {'dtype': np.int16, '_FillValue': NODATA, 'zlib': True}
-
+ENCODING = {'_FillValue': NODATA, 'zlib': True}
         
 EPILOG = """Christian Werner, SENCKENBERG Biodiversity and Climate Research Centre (BiK-F)
 email: christian.werner@senkenberg.de

@@ -18,7 +18,6 @@ log = logging.getLogger(__name__)
 
 # import constants
 from . import NODATA
-from . import defaultAttrsDA
 from . import ENCODING
 
 def assign_boundary_cond(dem):
@@ -125,18 +124,23 @@ def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source
         """Apply a mask from another masked_array."""
         return np.ma.masked_where(np.ma.getmask(m), a)
 
+    # special encoding (force output as Int16)
+    ENCODING_INT = dict(ENCODING)
+    ENCODING_INT.update({'dtype': np.int16})
+
     ds = xr.Dataset()
     ds['elevation'] = xr.DataArray(apply_mask(dem,m), coords=COORDS, dims=DIMS, 
-                                   encoding=ENCODING)
+                                   encoding=ENCODING_INT)
     ds['mask'] = xr.DataArray(dem_mask.astype('bool'), coords=COORDS, dims=DIMS, 
-                                   encoding=ENCODING)
+                                   encoding=ENCODING_INT)
     ds['slope'] = xr.DataArray(apply_mask(slope,m), coords=COORDS, dims=DIMS,
-                                   encoding=ENCODING)
+                                   encoding=ENCODING_INT)
     ds['aspect'] = xr.DataArray(apply_mask(aspect,m), coords=COORDS, dims=DIMS,
-                                   encoding=ENCODING)
+                                   encoding=ENCODING_INT)
     ds['landform'] = xr.DataArray(apply_mask(landform,m), coords=COORDS, dims=DIMS,
-                                   encoding=ENCODING)
+                                   encoding=ENCODING_INT)
     
+    # add scale_factor to slope encoding
     ds['slope'].pipe(update_encoding, {'scale_factor': 0.1})
     
     if source != None:
@@ -360,11 +364,15 @@ def classify_aspect(ds, TYPE='SIMPLE'):
     else:
         log.error('Currently only classifiation schemes WEISS, SIMPLE supported.')
 
+    # special encoding (force output as Int16)
+    ENCODING_INT = dict(ENCODING)
+    ENCODING_INT.update({'dtype': np.int16})    
+
     asp_cl = np.ma.masked_where(ds['mask'] == 0, asp_cl)
     da_asp_cl = xr.full_like(ds['aspect'], np.nan)
     ds['aspect_class'] = da_asp_cl
     ds['aspect_class'][:] = asp_cl
-    ds['aspect_class'].pipe(update_encoding, ENCODING)
+    ds['aspect_class'].pipe(update_encoding, ENCODING_INT)
     return ds
 
 
@@ -399,11 +407,15 @@ def classify_landform(ds, elevation_levels=[], TYPE='SIMPLE'):
         for i, (lb, ub) in enumerate(zip(elevation_levels[:-1], elevation_levels[1:])):
             lf_cl = np.ma.where(((ele >= lb) & (ele < ub)), lf_cl + (i+1) * 100, lf_cl)   
 
+    # special encoding (force output as Int16)
+    ENCODING_INT = dict(ENCODING)
+    ENCODING_INT.update({'dtype': np.int16})    
+
     lf_cl = np.ma.masked_where(ds['mask'] == 0, lf_cl)
     da_lf_cl = xr.full_like(ds['landform'], np.nan)
     ds['landform_class'] = da_lf_cl
     ds['landform_class'][:] = lf_cl
-    ds['landform_class'].pipe(update_encoding, ENCODING)
+    ds['landform_class'].pipe(update_encoding, ENCODING_INT)
     return ds
 
 

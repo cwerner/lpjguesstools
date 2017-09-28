@@ -39,13 +39,14 @@ import xarray as xr
 from _geoprocessing import compute_spatial_dataset, classify_aspect, \
                            classify_landform, get_center_coord, \
                            split_srtm1_dataset, get_global_attr, \
-                           analyze_filename_dem, set_global_attr
+                           analyze_filename_dem, set_global_attr, \
+                           update_attrs, update_encoding
 
 log = logging.getLogger(__name__)
 
 # import constants
 from . import NODATA
-from . import defaultAttrsDA
+from . import ENCODING
 from . import EPILOG
 
 # quick helpers
@@ -310,7 +311,7 @@ def compute_statistics(cfg):
     tiles_stats = []
     for tile in tiles:
         log.debug('Computing statistics for tile %s' % tile)
-        with xr.open_dataset(tile, decode_cf=False) as ds:
+        with xr.open_dataset(tile) as ds:
             lf_stats = get_tile_summary(ds, cutoff=cfg.CUTOFF)
             number_of_ids = len(lf_stats)
             lon, lat = get_center_coord(ds)
@@ -339,14 +340,13 @@ def is_3d(ds, v):
 def assign_to_dataarray(data, df, lf_full_set, refdata=False):
     """Place value into correct location of data array."""
 
-    
     try:
     	del df['lf-327680']
         log.warn("Funny column in df! Deleting column [TODO: investigate]")
     except:
         pass
 
-    data[:] = NODATA
+    data[:] = np.nan
     for _, r in df.iterrows():
         if refdata:
             data.loc[r.lat, r.lon] = r.lf_cnt
@@ -408,21 +408,21 @@ def build_site_netcdf(soilref, elevref, extent=None):
         vattr = {'name': varD[v][0],
                  'long_name': varD[v][1],
                  'units': varD[v][2]}
-        vattr.update(defaultAttrsDA)
-        da.attrs.update(vattr)
-        da[:] = np.ma.masked_where(emask, da.to_masked_array().filled(NODATA))
+                 
+        da.pipe(update_attrs, vattr)
+        da.pipe(update_encoding, ENCODING)    
+        da[:] = np.ma.masked_where(emask, da.to_masked_array())
         dsout[da.name] = da
 
     # ele var
-    da = xr.full_like(da.copy(deep=True), NODATA)
+    da = xr.full_like(da.copy(deep=True), np.nan)
     da.name = 'ELEVATION'
     vattr = {'name': 'elevation', 'long_name': 'Elevation', 'units': 'meters'}
-    vattr.update(defaultAttrsDA)
-    da.attrs.update(vattr)
-    
-    da[:] = ds_ele['data'].to_masked_array().filled(NODATA)
-    dsout[da.name] = da
+    da.pipe(update_attrs, vattr)
+    da.pipe(update_encoding, vattr)
 
+    da[:] = ds_ele['data'].to_masked_array()
+    dsout[da.name] = da
     return dsout
 
 
@@ -476,7 +476,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
     dsout[da_slope.name] = da_slope
     dsout[da_elev.name] = da_elev
     for dv in dsout.data_vars:
-        dsout[dv].attrs.update(defaultAttrsDA)
+        dsout[dv].pipe(update_encoding, ENCODING)
 
     # register the specific landform properties (elevation steps, classfication)
     set_global_attr(dsout, 'lgt.elevation_step', elevation_levels[1])
@@ -531,7 +531,7 @@ def build_compressed(ds):
 
     # create land_id reference array
     # TODO: clip land_id array to Chile country extent?
-    da_ids.attrs.update(defaultAttrsDA)
+    da_ids.pipe(update_encoding, ENCODING)
     ds_ids = da_ids.to_dataset(name='land_id')
 
     # create xr.Dataset
@@ -553,11 +553,11 @@ def build_compressed(ds):
         
         for lat, lon in zip(latL, lonL):
             land_id = D_ids[(lat, lon)]
-            vals = ds[v].sel(lat=lat, lon=lon).to_masked_array().filled(NODATA)
+            vals = ds[v].sel(lat=lat, lon=lon).to_masked_array()
             _da.loc[land_id] = vals
         
-        _da.attrs.update( ds[v].attrs )
-        _da.attrs.update(defaultAttrsDA)
+        _da.pipe(update_attrs, ds[v].attrs)
+        _da.pipe(update_encoding, ENCODING)
 
         dsout[_da.name] = _da
 
