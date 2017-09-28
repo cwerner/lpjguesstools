@@ -88,6 +88,14 @@ def convert_float_coord_to_string(coord, p=2):
     return coord_s
 
 
+def has_significant_land(ds, min_frac=0.01):
+    """Test if land fraction in tile is significant."""
+    # min_frac in %, default: 0.001 %
+    if (ds['mask'].values.sum() / float(len(ds.lat.values) * len(ds.lon.values))) * 100 > min_frac:
+        return True
+    return False
+
+
 def define_landform_classes(step, limit, TYPE='SIMPLE'):
     """Define the landform classes."""
     
@@ -280,18 +288,24 @@ def convert_dem_files(cfg, lf_ele_levels):
                 ds_srtm1 = compute_spatial_dataset(dem_file, fname_shp=matched_shp_file)
                 tiles = split_srtm1_dataset(ds_srtm1)
 
-                for tile in tiles:
+                for i, tile in enumerate(tiles):
+
                     # reclass
-                    if tile != None:
+                    if tile != None and has_significant_land(tile):
+                        log.debug("Valid tile %d in file %s." % (i+1, dem_file))
+
                         classify_aspect(tile)
                         classify_landform(tile, elevation_levels=lf_ele_levels, TYPE=cfg.CLASSIFICATION)            
                         
                         # store file in tilestore
+                        # get tile center coordinate and name
                         lon, lat = get_center_coord(tile)
                         lonlat_string = convert_float_coord_to_string((lon,lat))
-                        tile.to_netcdf(os.path.join(cfg.TILESTORE_PATH, \
-                                       "srtm1_processed_%s.nc" % lonlat_string), 
-                                       format='NETCDF4_CLASSIC')
+                        tile_name = "srtm1_processed_%s.nc" % lonlat_string
+                        tile.to_netcdf(os.path.join(cfg.TILESTORE_PATH, tile_name), \
+                                                    format='NETCDF4_CLASSIC')
+                    else:
+                        log.debug("Empty tile %d in file %s ignored." % (i+1, dem_file))
 
     
 @time_dec

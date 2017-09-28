@@ -195,15 +195,17 @@ def compute_spatial_dataset(fname_dem, fname_shp=None):
         
         # read dem (as maskedarray) and create land mask (with gtiff nodata if present)
         dem = src.read(1, masked=True)
-        dem_mask = ~np.ma.getmaskarray(dem)
+        # invert the bool array (0=missing, 1=valid)
+        dem_mask = ~dem.mask #~np.ma.getmaskarray(dem)
         
         if fname_shp != None:
             fname_shp, source_name_shp = analyze_filename_shp(fname_shp)
             log.info("Masking water bodies")
             with fiona.open(fname_shp) as shp:
                 geoms = [feature["geometry"] for feature in shp]
-                dmask, _ = rasterio.mask.mask(src, geoms, nodata=0, crop=False, invert=True)
-                dmask = np.where(dmask > 0, 1, 0)
+                dmask, _ = rasterio.mask.mask(src, geoms, nodata=NODATA, crop=False, invert=True)
+                dmask = np.where(dmask == NODATA, 0, 1)
+                # union of the dem mask and the waterfile mask
                 dem_mask = dem_mask * dmask.squeeze()
         else:
             log.warn("No water mask shapefile found: %s" % fname_shp)
@@ -449,7 +451,6 @@ def split_srtm1_dataset(ds):
     return_tiles = []
     for i, ds_ in enumerate([ds1, ds2, ds3, ds4]):
         if is_empty_tile(ds_):
-            log.info("Empty tile at quadrant %d detected. Ignored." % (i+1))
             return_tiles.append(None)
         else:
             return_tiles.append(ds_)
