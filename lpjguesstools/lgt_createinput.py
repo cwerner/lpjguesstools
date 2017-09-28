@@ -733,7 +733,5 @@ def cli(cutoff, dems, masks, gridlist, extent, classfication, storage, outdir, v
     # TODO: change logging level based on verbose flag
     cfg = Bunch(config_data)
 
-    print force_overwrite
-
     main(cfg)
     
