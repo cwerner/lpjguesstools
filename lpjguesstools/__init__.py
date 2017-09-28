@@ -1,5 +1,6 @@
 import logging
 from logging.handlers import RotatingFileHandler
+import numpy as np
 import sys
 
 try:  # python 2.7+
@@ -68,6 +69,8 @@ defaultAttrsDA = {
         '_FillValue':    NODATA,
         'missing_value': NODATA
         }
+ENCODING = {'dtype': np.int16, '_FillValue': NODATA, 'zlib': True}
+
         
 EPILOG = """Christian Werner, SENCKENBERG Biodiversity and Climate Research Centre (BiK-F)
 email: christian.werner@senkenberg.de

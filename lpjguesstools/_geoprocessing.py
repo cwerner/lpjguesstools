@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 # import constants
 from . import NODATA
 from . import defaultAttrsDA
+from . import ENCODING
 
 def assign_boundary_cond(dem):
     """Pad grid boundaries for proper slope calc at adges."""
@@ -65,6 +66,26 @@ def calculate_utm_crs(lon, lat):
     return 'EPSG:%d' % code    
 
 
+def update_attrs(obj, *args, **kwargs):
+    """Update the attributes in a xarray Dataset or DataArray"""
+    # use: ds.pipe(update_attrs, foo='bar')
+
+    obj.attrs.update(*args, **kwargs)
+    return obj
+
+
+def update_encoding(obj, *args, **kwargs):
+    """Update the encoding in a xarray Dataset or DataArray"""
+    # use: ds.pipe(update_encoding, ENCODING)
+    obj.encoding.update(*args, **kwargs)
+    return obj
+
+    
+def apply_mask(a, m):
+    """Apply a mask from another masked_array."""
+    return np.ma.masked_where(np.ma.getmask(m), a)
+
+
 def calc_aspect(Sx, Sy):
     """Calculate aspect given X and Y slope components (unit: deg)."""
     aspect = np.rad2deg( np.arctan2(Sy, -Sx) )
@@ -97,15 +118,26 @@ def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source
         COORDS={}
         DIMS=['dim_0', 'dim_1']
     
-    ds = xr.Dataset()
-    ds['elevation'] = xr.DataArray(dem, coords=COORDS, dims=DIMS).fillna(NODATA)
-    ds['mask'] = xr.DataArray(dem_mask.astype('bool'), coords=COORDS, dims=DIMS)
-    ds['slope'] = (xr.DataArray(slope, coords=COORDS, dims=DIMS) * ds['mask']).fillna(NODATA)
-    ds['aspect'] = (xr.DataArray(aspect, coords=COORDS, dims=DIMS) * ds['mask']).fillna(NODATA)
-    ds['landform'] = (xr.DataArray(landform, coords=COORDS, dims=DIMS) * ds['mask']).fillna(NODATA)
+    # default mask
+    m = np.ma.masked_where(dem_mask == 0, dem_mask)
     
-    for v in ['elevation', 'slope', 'aspect', 'landform']:
-        ds[v].attrs.update(defaultAttrsDA)
+    def apply_mask(a, m):
+        """Apply a mask from another masked_array."""
+        return np.ma.masked_where(np.ma.getmask(m), a)
+
+    ds = xr.Dataset()
+    ds['elevation'] = xr.DataArray(apply_mask(dem,m), coords=COORDS, dims=DIMS, 
+                                   encoding=ENCODING)
+    ds['mask'] = xr.DataArray(dem_mask.astype('bool'), coords=COORDS, dims=DIMS, 
+                                   encoding=ENCODING)
+    ds['slope'] = xr.DataArray(apply_mask(slope,m), coords=COORDS, dims=DIMS,
+                                   encoding=ENCODING)
+    ds['aspect'] = xr.DataArray(apply_mask(aspect,m), coords=COORDS, dims=DIMS,
+                                   encoding=ENCODING)
+    ds['landform'] = xr.DataArray(apply_mask(landform,m), coords=COORDS, dims=DIMS,
+                                   encoding=ENCODING)
+    
+    ds['slope'].pipe(update_encoding, {'scale_factor': 0.1})
     
     if source != None:
         set_global_attr(ds, 'source', source)
@@ -311,11 +343,12 @@ def get_center_coord(ds):
 def classify_aspect(ds, TYPE='SIMPLE'):
     """Classify dataarray from continuous aspect to 1,2,3,4. or 1, 2"""
     
-    # TODO: Check if we need only northern and southern aspect classes for
-    #       implementation     
     aspect = ds['aspect'].to_masked_array()
     asp_cl = ds['aspect'].to_masked_array()
     
+    # silence numpy warning in the comaprisons nan in masked_array
+    import warnings
+    warnings.filterwarnings("ignore",category=RuntimeWarning)
     if TYPE == 'WEISS':
         asp_cl[(aspect >= 315) | (aspect <  45)] = 1    # North
         asp_cl[(aspect >= 45)  & (aspect < 135)] = 2    # East
@@ -327,10 +360,11 @@ def classify_aspect(ds, TYPE='SIMPLE'):
     else:
         log.error('Currently only classifiation schemes WEISS, SIMPLE supported.')
 
-    asp_cl = np.ma.masked_where(ds['mask'] == 0, asp_cl).filled(NODATA)
-    ds['aspect_class'] = xr.full_like(ds['aspect'], NODATA)
+    asp_cl = np.ma.masked_where(ds['mask'] == 0, asp_cl)
+    da_asp_cl = xr.full_like(ds['aspect'], np.nan)
+    ds['aspect_class'] = da_asp_cl
     ds['aspect_class'][:] = asp_cl
-    ds['aspect_class'].attrs.update(defaultAttrsDA)
+    ds['aspect_class'].pipe(update_encoding, ENCODING)
     return ds
 
 
@@ -364,10 +398,12 @@ def classify_landform(ds, elevation_levels=[], TYPE='SIMPLE'):
 
         for i, (lb, ub) in enumerate(zip(elevation_levels[:-1], elevation_levels[1:])):
             lf_cl = np.ma.where(((ele >= lb) & (ele < ub)), lf_cl + (i+1) * 100, lf_cl)   
-    
-    ds['landform_class'] = xr.full_like(ds['landform'], NODATA)
-    ds['landform_class'][:] = lf_cl.filled(NODATA)
-    ds['landform_class'].attrs.update(defaultAttrsDA)
+
+    lf_cl = np.ma.masked_where(ds['mask'] == 0, lf_cl)
+    da_lf_cl = xr.full_like(ds['landform'], np.nan)
+    ds['landform_class'] = da_lf_cl
+    ds['landform_class'][:] = lf_cl
+    ds['landform_class'].pipe(update_encoding, ENCODING)
     return ds
 
 

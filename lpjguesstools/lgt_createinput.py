@@ -289,8 +289,9 @@ def convert_dem_files(cfg, lf_ele_levels):
                         lon, lat = get_center_coord(tile)
                         lonlat_string = convert_float_coord_to_string((lon,lat))
                         tile.to_netcdf(os.path.join(cfg.TILESTORE_PATH, \
-                                       "srtm1_processed_%s.nc" % lonlat_string)) 
-                                   
+                                       "srtm1_processed_%s.nc" % lonlat_string), 
+                                       format='NETCDF4_CLASSIC')
+
     
 @time_dec
 def compute_statistics(cfg):
