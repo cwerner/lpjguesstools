@@ -345,6 +345,12 @@ def assign_to_dataarray(data, df, lf_full_set, refdata=False):
         log.warn("Funny column in df! Deleting column [TODO: investigate]")
     except:
         pass
+    
+    try:
+    	del df['lf-2147483648']
+        log.warn("Funny column in df! Deleting column [TODO: investigate]")
+    except:
+        pass
 
     data[:] = np.nan
     for _, r in df.iterrows():
