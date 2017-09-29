@@ -353,8 +353,11 @@ def is_3d(ds, v):
 
 def assign_to_dataarray(data, df, lf_full_set, refdata=False):
     """Place value into correct location of data array."""
-
-    data[:] = np.nan
+    
+    if refdata==True:
+        data[:] = NODATA
+    else:
+        data[:] = np.nan
     for _, r in df.iterrows():
         if refdata:
             data.loc[r.lat, r.lon] = r.lf_cnt
@@ -427,7 +430,7 @@ def build_site_netcdf(soilref, elevref, extent=None):
     da.name = 'ELEVATION'
     vattr = {'name': 'elevation', 'long_name': 'Elevation', 'units': 'meters'}
     da.pipe(update_attrs, vattr)
-    da.pipe(update_encoding, vattr)
+    da.pipe(update_encoding, ENCODING)
 
     da[:] = ds_ele['data'].to_masked_array()
     dsout[da.name] = da
@@ -444,8 +447,8 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
     SHAPE = tuple([len(x) for _, x in COORDS])
     
     # initiate data arrays
-    _blank = np.ones(SHAPE) * NODATA
-    da_lfcnt = xr.DataArray(_blank.copy()[0,:,:].astype('i'), name='lfcnt', 
+    _blank = np.empty(SHAPE)
+    da_lfcnt = xr.DataArray(_blank.copy()[0,:,:].astype(int), name='lfcnt', 
                             coords=COORDS[1:])
     da_frac = xr.DataArray(_blank.copy(), name='frac', coords=COORDS)
     da_slope = xr.DataArray(_blank.copy(), name='slope', coords=COORDS)
