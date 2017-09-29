@@ -164,6 +164,20 @@ def tile_already_processed(fname, TILESTORE_PATH):
     return False    
 
 
+def tiles_already_processed(TILESTORE_PATH):
+    """Check if the tile exists."""
+    existing_tiles = glob.glob(os.path.join(TILESTORE_PATH, '*.nc'))
+    #existing_tiles = [os.path.basename(x) for x in glob.glob(glob_string)]
+    
+    processed_tiles = []
+    for existing_tile in existing_tiles:
+        source_attr = get_global_attr(existing_tile, 'source')
+        if source_attr != None:
+            _, source_name = analyze_filename_dem(source_attr)
+            processed_tiles.append(source_name)
+    return processed_tiles
+
+
 def match_watermask_shpfile(glob_string):
     """Check if the generated shp glob_string exists."""
     found=False
@@ -263,6 +277,8 @@ def convert_dem_files(cfg, lf_ele_levels):
             glob_string = os.path.join(cfg.SRTMSTORE_PATH, '*')
         dem_files = sorted(glob.glob(cfg.SRTMSTORE_PATH))
 
+        existing_tiles = tiles_already_processed(cfg.TILESTORE_PATH)
+
         for dem_file in dem_files:
             fname = os.path.basename(dem_file)
             fdir  = os.path.dirname(dem_file)
@@ -276,7 +292,8 @@ def convert_dem_files(cfg, lf_ele_levels):
             if cfg.OVERWRITE:
                 process_tiles = True
             else:
-                if tile_already_processed(fname, cfg.TILESTORE_PATH):
+                _, source_name = analyze_filename_dem(fname)
+                if source_name in existing_tiles:
                     process_tiles = False
             
             if process_tiles:                        
