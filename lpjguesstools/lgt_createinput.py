@@ -36,11 +36,13 @@ import string
 import time
 import xarray as xr
 
+import _xarrayext
+
 from _geoprocessing import compute_spatial_dataset, classify_aspect, \
-                           classify_landform, get_center_coord, \
-                           split_srtm1_dataset, get_global_attr, \
-                           analyze_filename_dem, set_global_attr, \
-                           update_attrs, update_encoding
+                           classify_landform, analyze_filename_dem, \
+                           set_global_attr, get_global_attr
+
+from ._srtm1 import split_srtm1_dataset
 
 log = logging.getLogger(__name__)
 
@@ -231,9 +233,7 @@ def get_tile_summary(ds, cutoff=0):
         lf_elevation = ds['elevation'].values[ix].mean()
         df.loc[i, 'slope'] = lf_slope
         df.loc[i, 'elevation'] = lf_elevation
-        
-    #df = df.sort_values(by='cells', ascending=False)
-    df.reset_index(inplace=True)
+    
     return df
 
 
@@ -251,7 +251,7 @@ def tile_files_compatible(files):
 
 def create_stats_table(df, var):
     """Create a landform info table for all coords and given var."""
-    
+
     df_ = df[var].unstack(level=-1, fill_value=NODATA)
     # rename columns and split coord tuple col to lon and lat col
     df_.columns = ['lf' + str(col) for col in df_.columns]
@@ -316,7 +316,7 @@ def convert_dem_files(cfg, lf_ele_levels):
                         
                         # store file in tilestore
                         # get tile center coordinate and name
-                        lon, lat = get_center_coord(tile)
+                        lon, lat = tile.geo.center()
                         lonlat_string = convert_float_coord_to_string((lon,lat))
                         tile_name = "srtm1_processed_%s.nc" % lonlat_string
                         tile.to_netcdf(os.path.join(cfg.TILESTORE_PATH, tile_name), \
@@ -344,11 +344,11 @@ def compute_statistics(cfg):
         log.debug('Computing statistics for tile %s' % tile)
         with xr.open_dataset(tile) as ds:
             lf_stats = get_tile_summary(ds, cutoff=cfg.CUTOFF)
+            lf_stats.reset_index(inplace=True)
             number_of_ids = len(lf_stats)
-            lon, lat = get_center_coord(ds)
-            
-            coords = pd.Series([(round(lon,2),round(lat,2), int(number_of_ids)) for x in range(len(lf_stats))])
-            lf_stats['coord'] = coords        
+            lon, lat = ds.geo.center()
+            coord_tuple = (round(lon,2),round(lat,2), int(number_of_ids)) 
+            lf_stats['coord'] = pd.Series([coord_tuple for _ in range(len(lf_stats))])
             lf_stats.set_index(['coord', 'lf_id'], inplace=True)
             tiles_stats.append( lf_stats )
 
@@ -437,8 +437,9 @@ def build_site_netcdf(soilref, elevref, extent=None):
                  'long_name': varD[v][1],
                  'units': varD[v][2]}
                  
-        da.pipe(update_attrs, vattr)
-        da.pipe(update_encoding, ENCODING)    
+        da.tile.update_attrs(vattr)
+        da.tile.update_encoding(ENCODING)
+         
         da[:] = np.ma.masked_where(emask, da.to_masked_array())
         dsout[da.name] = da
 
@@ -446,8 +447,8 @@ def build_site_netcdf(soilref, elevref, extent=None):
     da = xr.full_like(da.copy(deep=True), np.nan)
     da.name = 'ELEVATION'
     vattr = {'name': 'elevation', 'long_name': 'Elevation', 'units': 'meters'}
-    da.pipe(update_attrs, vattr)
-    da.pipe(update_encoding, ENCODING)
+    da.tile.update_attrs(vattr)
+    da.tile.update_encoding(ENCODING)
 
     da[:] = ds_ele['data'].to_masked_array()
     dsout[da.name] = da
@@ -503,11 +504,11 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
     dsout[da_slope.name] = da_slope
     dsout[da_elev.name] = da_elev
     for dv in dsout.data_vars:
-        dsout[dv].pipe(update_encoding, ENCODING)
+        dsout[dv].tile.update_encoding(ENCODING)
 
     # register the specific landform properties (elevation steps, classfication)
-    set_global_attr(dsout, 'lgt.elevation_step', elevation_levels[1])
-    set_global_attr(dsout, 'lgt.classification', cfg.CLASSIFICATION.lower())
+    dsout.tile.set('elevation_step', elevation_levels[1])
+    dsout.tile.set('lgt.classification', cfg.CLASSIFICATION.lower())
 
     return dsout
 
@@ -558,7 +559,7 @@ def build_compressed(ds):
 
     # create land_id reference array
     # TODO: clip land_id array to Chile country extent?
-    da_ids.pipe(update_encoding, ENCODING)
+    da_ids.tile.update_encoding(ENCODING)
     ds_ids = da_ids.to_dataset(name='land_id')
 
     # create xr.Dataset
@@ -583,8 +584,8 @@ def build_compressed(ds):
             vals = ds[v].sel(lat=lat, lon=lon).to_masked_array()
             _da.loc[land_id] = vals
         
-        _da.pipe(update_attrs, ds[v].attrs)
-        _da.pipe(update_encoding, ENCODING)
+        _da.tile.update_attrs(ds[v].attrs)
+        _da.tile.update_encoding(ENCODING)
 
         dsout[_da.name] = _da
 
