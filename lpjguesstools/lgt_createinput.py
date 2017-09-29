@@ -155,7 +155,7 @@ def tile_already_processed(fname, TILESTORE_PATH):
     #existing_tiles = [os.path.basename(x) for x in glob.glob(glob_string)]
     
     for existing_tile in existing_tiles:
-        source_attr = get_global_attr(xr.open_dataset(existing_tile), 'source')
+        source_attr = get_global_attr(existing_tile, 'source')
         if source_attr != None:
             # TODO: add second check (version?)
             _, source_name = analyze_filename_dem(fname)
@@ -227,7 +227,7 @@ def tile_files_compatible(files):
     """Get global attribute from all tile netcdf files and check
     they are the same.
     """
-    x = [get_global_attr(xr.open_dataset(x), 'lgt.elevation_step') for x in files]
+    x = [get_global_attr(x, 'lgt.elevation_step') for x in files]
     if all(x):
         if x[0] != None:
             return True

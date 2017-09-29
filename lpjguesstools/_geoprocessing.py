@@ -460,16 +460,31 @@ def split_srtm1_dataset(ds):
 
 def get_global_attr(ds, attr_name):
     """Get the global dataset attribute."""
-    if ds.attrs.has_key(attr_name):
-        return ds.attrs[attr_name]
+    if type(ds) == str:
+        attr = None
+        with xr.open_dataset(ds) as ds:
+            if ds.attrs.has_key(attr_name):
+                attr = ds.attrs[attr_name]
+        return attr
     else:
-        return None
+        if ds.attrs.has_key(attr_name):
+            return ds.attrs[attr_name]
+        else:
+            return None
 
 
 def set_global_attr(ds, attr_name, value, overwrite=False):
     """Set the global dataset attribute."""
-    if ds.attrs.has_key(attr_name) and overwrite==False:
-        log.error("Trying to set attr %s to %s (it already exists)." % (
-                  attr_name, str(value)))
+    if type(ds) == str:
+        with xr.open_dataset(ds) as ds:
+            if ds.attrs.has_key(attr_name) and overwrite==False:
+                log.error("Trying to set attr %s to %s (it already exists)." % (
+                          attr_name, str(value)))
+            else:
+                ds.attrs[attr_name] = value
     else:
-        ds.attrs[attr_name] = value
+        if ds.attrs.has_key(attr_name) and overwrite==False:
+            log.error("Trying to set attr %s to %s (it already exists)." % (
+                      attr_name, str(value)))
+        else:
+            ds.attrs[attr_name] = value
