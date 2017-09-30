@@ -83,31 +83,32 @@ def calc_slope(Sx, Sy):
     return np.rad2deg(np.sqrt(Sx**2 + Sy**2))
 
 
+def derive_coordinates(info):
+    """Calculate tile lat lon information from GTiff info."""
+    dx, _, leftc, _, dy, upperc, _, _, _ = info['transform']
+    cellsx = info['width']
+    cellsy = info['height']
+    lowerc = upperc - (cellsy*abs(dy))
+    lons = np.linspace(leftc, leftc+((cellsx+1)*dx), cellsx)
+    lats = np.linspace(lowerc, lowerc+((cellsy+1)*abs(dy)), cellsy)
+    # flipped lats
+    return dict(lon=lons, lats=lats[::-1])
+
+
 def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source=None):
     """Create a datasets from dem, dem_mask, slope and aspect."""
     
     # if a rasterio transfrom info is passed
     if info != None:
-        dx, _, leftc, _, dy, upperc, _, _, _ = info['transform']
-        cellsx = info['width']
-        cellsy = info['height']
-        lowerc = upperc - (cellsy*abs(dy))
-        lons = np.linspace(leftc, leftc+((cellsx+1)*dx), cellsx)
-        lats = np.linspace(lowerc, lowerc+((cellsy+1)*abs(dy)), cellsy)
-        
-        COORDS = dict(lat=lats[::-1], lon=lons)
+        COORDS = derive_coordinates(info)
         DIMS = ['lat', 'lon']
     else:
-        log.warn('No spatial information provided. y-axis likely flipped.')
+        log.warn('No spatial information provided. Y-axis likely flipped.')
         COORDS={}
         DIMS=['dim_0', 'dim_1']
     
     # default mask
     m = np.ma.masked_where(dem_mask == 0, dem_mask)
-    
-    def apply_mask(a, m):
-        """Apply a mask from another masked_array."""
-        return np.ma.masked_where(np.ma.getmask(m), a)
 
     # special encoding (force output as Int16)
     ENCODING_INT = dict(ENCODING)
@@ -310,11 +311,6 @@ def compute_spatial_dataset(fname_dem, fname_shp=None):
                                 aspect = np.ma.masked_array(ds_geo2.read(4), mask=~dem_mask)
                                 landform = np.ma.masked_array(ds_geo2.read(5), mask=~dem_mask)
                                 
-                                #log.info("Dumping GTiff 1arc file for debugging.")
-                                #print msrc_kwargs
-                                #with rasterio.open('test.tiff', 'w', **msrc_kwargs) as dst:
-                                #    for i in range(1,6):
-                                #        dst.write(ds_geo2.read(i), i)
 
     # create dataset    
     ds = create_dem_dataset(dem, dem_mask, slope, aspect, landform, 
@@ -395,5 +391,5 @@ def classify_landform(ds, elevation_levels=[], TYPE='SIMPLE'):
     da_lf_cl = xr.full_like(ds['landform'], np.nan)
     ds['landform_class'] = da_lf_cl
     ds['landform_class'][:] = lf_cl
-    ds['landform_class'].pipe(update_encoding, ENCODING_INT)
+    ds['landform_class'].tile.update_encoding(ENCODING_INT)
     return ds
