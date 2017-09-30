@@ -23,8 +23,7 @@ email: christian.werner@senkenberg.de
 2017/02/07
 """
 
-from collections import Counter, OrderedDict
-import copy
+from collections import OrderedDict
 import datetime
 import glob 
 import logging
