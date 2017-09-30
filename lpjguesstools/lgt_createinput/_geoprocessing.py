@@ -92,7 +92,7 @@ def derive_coordinates(info):
     lons = np.linspace(leftc, leftc+((cellsx+1)*dx), cellsx)
     lats = np.linspace(lowerc, lowerc+((cellsy+1)*abs(dy)), cellsy)
     # flipped lats
-    return dict(lon=lons, lats=lats[::-1])
+    return dict(lon=lons, lat=lats[::-1])
 
 
 def create_tile(dem, dem_mask, slope, aspect, landform, info=None, source=None):
@@ -348,7 +348,7 @@ def classify_aspect(ds, TYPE='SIMPLE'):
     da_asp_cl = xr.full_like(ds['aspect'], np.nan)
     ds['aspect_class'] = da_asp_cl
     ds['aspect_class'][:] = asp_cl
-    ds['aspect_class'].pipe(update_encoding, ENCODING_INT)
+    ds['aspect_class'].tile.update_encoding(ENCODING_INT)
     return ds
 
 

@@ -62,12 +62,18 @@ def time_dec(func):
     return wrapper
 
 
-varD = {'TOTC': ('SOC', 'Soil Organic Carbon', 'percent', 0.1),
-        'SDTO': ('SAND', 'Sand', 'percent', 1.0),
-        'STPC': ('SILT', 'Silt', 'percent', 1.0),
-        'CLPC': ('CLAY', 'Clay', 'percent', 1.0)}
+varSoil = {'TOTC': ('soc', 'Soil Organic Carbon', 'soc', 'percent', 0.1),
+           'SDTO': ('sand', 'Sand', 'sand', 'percent', 1.0),
+           'STPC': ('silt', 'Silt', 'silt', 'percent', 1.0),
+           'CLPC': ('clay', 'Clay', 'clay', 'percent', 1.0)}
 
-soil_vars = sorted(varD.keys())
+varLF = {'lfcnt': ('lfcnt', 'Number of landforms', 'lfcnt', '-', 1.0),
+         'slope': ('slope', 'Slope', 'slope', 'deg', 1.0),
+         'fraction': ('fraction', 'Landform Fraction', 'fraction', '1/1', 1.0),
+         'elevation': ('elevation', 'Elevation', 'elevation', 'm', 1.0)}
+
+soil_vars = sorted(varSoil.keys())
+lf_vars = sorted(varLF.keys())
 
 
 def convert_float_coord_to_string(coord, p=2):
@@ -406,23 +412,41 @@ def build_site_netcdf(soilref, elevref, extent=None):
     # identify locations that need filling and use left neighbor
     smask = np.where(ds_soil['TOTC'].to_masked_array().mask, 1, 0)
     emask = np.where(ds_ele['data'].to_masked_array().mask, 1, 0)
-    missing = np.where((smask == 1) & (emask == 0), 1, 0)
 
+    # no soil data but elevation: gap-fill wioth neighbors
+    missing = np.where((smask == 1) & (emask == 0), 1, 0)
     ix, jx = np.where(missing == 1)
-    for i, j in zip(ix, jx):
-        for v in soil_vars:
-            ds_soil[v][i, j] = ds_soil[v][i, j-1]
+    
+    if len(ix) > 0:
+        log.debug('Cells with elevation but no soil data [BEFORE GF: %d].' % len(ix))
+        
+        for i, j in zip(ix, jx):
+            for v in soil_vars:
+                if np.isfinite(ds_soil[v][i, j-1]):
+                    ds_soil[v][i, j] = ds_soil[v][i, j-1].copy(deep=True)
+                elif np.isfinite(ds_soil[v][i, j+1]):
+                    ds_soil[v][i, j] = ds_soil[v][i, j+1].copy(deep=True)
+                else:
+                    print 'neighbours have nodata !!!'
+                x = ds_soil[v][i, j].to_masked_array()
+
+        smask2 = np.where(ds_soil['TOTC'].to_masked_array().mask, 1, 0)
+        missing = np.where((smask2 == 1) & (emask == 0), 1, 0)
+        ix, jx = np.where(missing == 1)
+        log.debug('Cells with elevation but no soil data [AFTER GF:  %d].' % len(ix))
 
     dsout = xr.Dataset()
     # soil vars
     for v in soil_vars:
-        conv = varD[v][-1]
+        conv = varSoil[v][-1]
         da = ds_soil[v].copy(deep=True) * conv
-        da.name = varD[v][0]
+        da.name = varSoil[v][0]
 
-        vattr = {'name': varD[v][0],
-                 'long_name': varD[v][1],
-                 'units': varD[v][2]}
+        vattr = {'name': varSoil[v][0],
+                 'long_name': varSoil[v][1],
+                 'standard_name': varSoil[v][2],
+                 'units': varSoil[v][3],
+                 'coordinates': "lat lon"}
                  
         da.tile.update_attrs(vattr)
         da.tile.update_encoding(ENCODING)
@@ -432,8 +456,9 @@ def build_site_netcdf(soilref, elevref, extent=None):
 
     # ele var
     da = xr.full_like(da.copy(deep=True), np.nan)
-    da.name = 'ELEVATION'
-    vattr = {'name': 'elevation', 'long_name': 'Elevation', 'units': 'meters'}
+    da.name = 'elevation'
+    vattr = {'name': 'elevation', 'long_name': 'Elevation', 
+             'units': 'meters',  'standard_name': 'elevation'}
     da.tile.update_attrs(vattr)
     da.tile.update_encoding(ENCODING)
 
@@ -481,6 +506,29 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
     dsout[da_frac.name] = da_frac
     dsout[da_slope.name] = da_slope
     dsout[da_elev.name] = da_elev
+
+    for v in dsout.data_vars:
+        vattr = {}
+        if v in lf_vars:
+            vattr = {'name': varLF[v][0],
+                     'long_name': varLF[v][1],
+                     'standard_name': varLF[v][2],
+                     'units': varLF[v][3],
+                     'coordinates': "lat lon"}
+        dsout[v].tile.update_attrs(vattr)
+        dsout[v].tile.update_encoding(ENCODING)
+    
+    dsout['lat'].tile.update_attrs(dict(standard_name='latitude',
+                                        long_name='latitude',
+                                        units='degrees_north'))
+
+    dsout['lon'].tile.update_attrs(dict(standard_name='longitude',
+                                        long_name='longitude',
+                                        units='degrees_east'))
+
+    dsout['lf_id'].tile.update_attrs(dict(standard_name='lf_id',
+                                          long_name='lf_id',
+                                          units='-'))
     for dv in dsout.data_vars:
         dsout[dv].tile.update_encoding(ENCODING)
 
@@ -496,8 +544,8 @@ def build_compressed(ds):
     # identify landforms netcdf
     if 'lfcnt' in ds.data_vars:
         v = 'lfcnt'
-    elif 'ELEVATION' in ds.data_vars:
-        v = 'ELEVATION'
+    elif 'elevation' in ds.data_vars:
+        v = 'elevation'
     else:
         log.error("Not a valid xr.Dataset (landforms or site only).")
 
@@ -530,6 +578,14 @@ def build_compressed(ds):
     lats = xr.DataArray(latL, name='lat', coords=[('land_id', LFIDS)])
     lons = xr.DataArray(lonL, name='lon', coords=[('land_id', LFIDS)])
 
+    lats.tile.update_attrs(dict(standard_name='latitude',
+                                long_name='latitude',
+                                units='degrees_north'))
+
+    lons.tile.update_attrs(dict(standard_name='longitude',
+                                long_name='longitude',
+                                units='degrees_east'))
+
     # create land_id reference array
     # TODO: clip land_id array to Chile country extent?
     da_ids.tile.update_encoding(ENCODING)
@@ -544,11 +600,10 @@ def build_compressed(ds):
     for v in ds.data_vars:
         if is_3d(ds, v):
             _shape = (len(LFIDS), len(ds[ds[v].dims[0]]))
-            COORDS = [('land_id', LFIDS), ('lf_id', ds.coords['lf_id'])]
+            COORDS = [('land_id', LFIDS), ('lf_id', ds['lf_id'])]
         else:
             _shape = (len(LFIDS),)
             COORDS = [('land_id', LFIDS)]
-            
         _blank = np.ones( _shape )
         _da = xr.DataArray(_blank[:], name=v, coords=COORDS)
         
@@ -561,6 +616,11 @@ def build_compressed(ds):
         _da.tile.update_encoding(ENCODING)
 
         dsout[_da.name] = _da
+
+        if is_3d(ds, v):
+            dsout['lf_id'].tile.update_attrs(dict(standard_name='lf_id',
+                                                  long_name='lf_id',
+                                                  units='-'))
 
     # copy lgt attributes from ssrc to dst
     dsout.tile.copy_attrs(ds)
@@ -623,7 +683,7 @@ def main(cfg):
                                        lf_ele_levels, refnc=sitenc)
     
     # clip to joined mask
-    elev_mask = np.where(sitenc['ELEVATION'].values == NODATA, 0, 1)
+    elev_mask = np.where(sitenc['elevation'].values == NODATA, 0, 1)
     landform_mask = np.where(landformnc['lfcnt'].values == NODATA, 0, 1)
     valid_mask = elev_mask * landform_mask
     
