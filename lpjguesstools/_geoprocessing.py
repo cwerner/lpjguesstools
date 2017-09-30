@@ -144,7 +144,7 @@ def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source
     ds['slope'].pipe(update_encoding, {'scale_factor': 0.1})
     
     if source != None:
-        set_global_attr(ds, 'source', source)
+        ds.tile.set('source', source)
     return ds
 
 
@@ -339,13 +339,6 @@ def compute_spatial_dataset(fname_dem, fname_shp=None):
 
 # xarray-based methods
 
-def get_center_coord(ds):
-    """Return the (lon, lat) of dataset (center)"""
-    lat_c = min(ds.lat.values) + (max(ds.lat.values) - min(ds.lat.values)) * 0.5
-    lon_c = min(ds.lon.values) + (max(ds.lon.values) - min(ds.lon.values)) * 0.5
-    return (lon_c, lat_c)
-        
-
 def classify_aspect(ds, TYPE='SIMPLE'):
     """Classify dataarray from continuous aspect to 1,2,3,4. or 1, 2"""
     
@@ -391,7 +384,7 @@ def classify_landform(ds, elevation_levels=[], TYPE='SIMPLE'):
         aspect_lf = [2,3,5]
     else:
         log.error('Currently only classifiation schemes WEISS, SIMPLE supported.')
-    set_global_attr(ds, 'lgt.classification', TYPE.lower())
+    ds.tile.set('classification', TYPE.lower())
     
     aspect_lfs = (ds['aspect_class'].to_masked_array() > 0) & \
                   (np.in1d(ds['landform'].to_masked_array(), aspect_lf).reshape(SHAPE))
@@ -404,7 +397,7 @@ def classify_landform(ds, elevation_levels=[], TYPE='SIMPLE'):
     ele = ds['elevation'].to_masked_array()
     if len(elevation_levels) > 0:
         # add global elevation step attribute (second element, first is lower boundary)
-        set_global_attr(ds, 'lgt.elevation_step', "%s" % elevation_levels[1])
+        ds.tile.set('elevation_step', elevation_levels[1])
 
         for i, (lb, ub) in enumerate(zip(elevation_levels[:-1], elevation_levels[1:])):
             lf_cl = np.ma.where(((ele >= lb) & (ele < ub)), lf_cl + (i+1) * 100, lf_cl)   
@@ -419,35 +412,3 @@ def classify_landform(ds, elevation_levels=[], TYPE='SIMPLE'):
     ds['landform_class'][:] = lf_cl
     ds['landform_class'].pipe(update_encoding, ENCODING_INT)
     return ds
-
-
-def get_global_attr(ds, attr_name):
-    """Get the global dataset attribute."""
-    if type(ds) == str:
-        attr = None
-        with xr.open_dataset(ds) as ds:
-            if ds.attrs.has_key(attr_name):
-                attr = ds.attrs[attr_name]
-        return attr
-    else:
-        if ds.attrs.has_key(attr_name):
-            return ds.attrs[attr_name]
-        else:
-            return None
-
-
-def set_global_attr(ds, attr_name, value, overwrite=False):
-    """Set the global dataset attribute."""
-    if type(ds) == str:
-        with xr.open_dataset(ds) as ds:
-            if ds.attrs.has_key(attr_name) and overwrite==False:
-                log.error("Trying to set attr %s to %s (it already exists)." % (
-                          attr_name, str(value)))
-            else:
-                ds.attrs[attr_name] = value
-    else:
-        if ds.attrs.has_key(attr_name) and overwrite==False:
-            log.error("Trying to set attr %s to %s (it already exists)." % (
-                      attr_name, str(value)))
-        else:
-            ds.attrs[attr_name] = value

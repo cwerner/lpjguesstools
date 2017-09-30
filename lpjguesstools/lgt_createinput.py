@@ -39,8 +39,7 @@ import xarray as xr
 import _xarrayext
 
 from _geoprocessing import compute_spatial_dataset, classify_aspect, \
-                           classify_landform, analyze_filename_dem, \
-                           set_global_attr, get_global_attr
+                           classify_landform, analyze_filename_dem
 
 from ._srtm1 import split_srtm1_dataset
 
@@ -151,21 +150,6 @@ def define_landform_classes(step, limit, TYPE='SIMPLE'):
     return (lf_full_set, ele_breaks)
 
 
-def tile_already_processed(fname, TILESTORE_PATH):
-    """Check if the tile exists."""
-    existing_tiles = glob.glob(os.path.join(TILESTORE_PATH, '*.nc'))
-    #existing_tiles = [os.path.basename(x) for x in glob.glob(glob_string)]
-    
-    for existing_tile in existing_tiles:
-        source_attr = get_global_attr(existing_tile, 'source')
-        if source_attr != None:
-            # TODO: add second check (version?)
-            _, source_name = analyze_filename_dem(fname)
-            if source_name == source_attr:
-                return True
-    return False    
-
-
 def tiles_already_processed(TILESTORE_PATH):
     """Check if the tile exists."""
     existing_tiles = glob.glob(os.path.join(TILESTORE_PATH, '*.nc'))
@@ -173,10 +157,12 @@ def tiles_already_processed(TILESTORE_PATH):
     
     processed_tiles = []
     for existing_tile in existing_tiles:
-        source_attr = get_global_attr(existing_tile, 'source')
-        if source_attr != None:
-            _, source_name = analyze_filename_dem(source_attr)
-            processed_tiles.append(source_name)
+        with xr.open_dataset(existing_tile) as ds:
+            source = ds.tile.get('source')
+            if source is not None:
+                processed_tiles.append(source)
+            else:
+                log.warn('Source attr not set in file %s.' % existing_tile)
     return processed_tiles
 
 
@@ -239,14 +225,22 @@ def get_tile_summary(ds, cutoff=0):
 
 def tile_files_compatible(files):
     """Get global attribute from all tile netcdf files and check
-    they are the same.
+    they were created with an identical elevation step.
     """
-    x = [get_global_attr(x, 'lgt.elevation_step') for x in files]
-    if all(x):
-        if x[0] != None:
-            return True
-    else:
-        return False
+
+    fingerprints = []
+    for file in files:
+        with xr.open_dataset(file) as ds:
+            fingerprint = (ds.tile.get('elevation_step'), ds.tile.get('classification'))
+        fingerprints.append(fingerprint)
+    
+    # check if elements are equal    
+    if all(x==fingerprints[0] for x in fingerprints):
+        # check if there are Nones' in any fingerprint
+        if not all(fingerprints):
+            return False
+        return True
+    return False
 
 
 def create_stats_table(df, var):
@@ -387,7 +381,7 @@ def assign_to_dataarray(data, df, lf_full_set, refdata=False):
     return data
 
 
-def spatialclip_dataframe(df, extent):
+def spatialclip_df(df, extent):
     """Clip dataframe wit lat lon columns by extent."""
     lon1, lat1, lon2, lat2 = extent
     return df[((df.lon >= lon1) & (df.lon <= lon2)) & 
@@ -473,20 +467,11 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
     da_elev = xr.DataArray(_blank.copy(), name='elevation', coords=COORDS)
     
     # check that landform coordinates are in refnc
-    lat_min, lat_max = frac_lf.lat.min(), frac_lf.lat.max()
-    lon_min, lon_max = frac_lf.lon.min(), frac_lf.lon.max()
-    
-    lats = refnc['lat'].values.tolist()
-    lons = refnc['lon'].values.tolist()
-    
-    if ((lat_min < min(lats)) | (lat_max > max(lats)) |  
-        (lon_min < min(lons)) | (lon_max > max(lons))):
-        log.warn('DEM tiles not within specified extent. Clipping.')
-
-    # potentially clip dataframes
-    frac_lf = spatialclip_dataframe(frac_lf, [min(lons), min(lats), max(lons), max(lats)])
-    slope_lf = spatialclip_dataframe(slope_lf, [min(lons), min(lats), max(lons), max(lats)])
-    elev_lf = spatialclip_dataframe(elev_lf, [min(lons), min(lats), max(lons), max(lats)])
+    df_extent = [frac_lf.lon.min(), frac_lf.lat.min(), frac_lf.lon.max(), frac_lf.lat.max()]
+    if refnc.geo.contains(df_extent) == False:
+        frac_lf = spatialclip_df(frac_lf, refnc.geo.extent)
+        slope_lf = spatialclip_df(slope_lf, refnc.geo.extent)
+        elev_lf = spatialclip_df(elev_lf, refnc.geo.extent)
 
     # dump files
     frac_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_frac.csv'), index=False)
@@ -508,7 +493,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
 
     # register the specific landform properties (elevation steps, classfication)
     dsout.tile.set('elevation_step', elevation_levels[1])
-    dsout.tile.set('lgt.classification', cfg.CLASSIFICATION.lower())
+    dsout.tile.set('classification', cfg.CLASSIFICATION.lower())
 
     return dsout
 
@@ -589,7 +574,8 @@ def build_compressed(ds):
 
         dsout[_da.name] = _da
 
-    copy_global_lgt_attrs(ds, dsout)
+    # copy lgt attributes from ssrc to dst
+    dsout.tile.copy_attrs(ds)
 
     return (ds_ids, dsout)
 
