@@ -95,8 +95,8 @@ def derive_coordinates(info):
     return dict(lon=lons, lats=lats[::-1])
 
 
-def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source=None):
-    """Create a datasets from dem, dem_mask, slope and aspect."""
+def create_tile(dem, dem_mask, slope, aspect, landform, info=None, source=None):
+    """Create a tile dataset from dem, dem_mask, slope and aspect."""
     
     # if a rasterio transfrom info is passed
     if info != None:
@@ -312,9 +312,9 @@ def compute_spatial_dataset(fname_dem, fname_shp=None):
                                 landform = np.ma.masked_array(ds_geo2.read(5), mask=~dem_mask)
                                 
 
-    # create dataset    
-    ds = create_dem_dataset(dem, dem_mask, slope, aspect, landform, 
-                            info=msrc_kwargs, source=source_name_dem)
+    # create tile dataset    
+    ds = create_tile(dem, dem_mask, slope, aspect, landform, 
+                     info=msrc_kwargs, source=source_name_dem)
     
     return ds
 
