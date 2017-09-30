@@ -63,10 +63,6 @@ hFile.setFormatter(lfFile)
 hFile.setLevel(logging.DEBUG)
 rootLogger.addHandler(hFile)
 
-# constants
-NODATA = -9999
-ENCODING = {'_FillValue': NODATA, 'zlib': True}
-        
 EPILOG = """Christian Werner, SENCKENBERG Biodiversity and Climate Research Centre (BiK-F)
 email: christian.werner@senkenberg.de
 2017/09/26"""

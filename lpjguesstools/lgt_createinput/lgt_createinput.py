@@ -50,7 +50,7 @@ log = logging.getLogger(__name__)
 # import constants
 from . import NODATA
 from . import ENCODING
-from . import EPILOG
+from .. import EPILOG
 
 # quick helpers
 # TODO: move to a dedicated file later
@@ -500,11 +500,6 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
     return dsout
 
 
-def copy_global_lgt_attrs(ds, dsout):
-    """Copy global lgt attributes from source to target dataset."""
-    source_attrs = dict([(k, v) for k, v in ds.attrs.items() if 'lgt.' in k])
-    dsout.attrs.update(source_attrs)
-
 def build_compressed(ds):
     """Build LPJ-Guess 4.0 compatible compressed netcdf file."""
     # identify landforms netcdf
@@ -614,8 +609,8 @@ def main(cfg):
     
     # default soil and elevation data (contained in package)
     import pkg_resources
-    SOIL_NC      = pkg_resources.resource_filename(__name__, 'data/GLOBAL_WISESOIL_DOM_05deg.nc')
-    ELEVATION_NC = pkg_resources.resource_filename(__name__, 'data/GLOBAL_ELEVATION_05deg.nc')
+    SOIL_NC      = pkg_resources.resource_filename(__name__, '../data/GLOBAL_WISESOIL_DOM_05deg.nc')
+    ELEVATION_NC = pkg_resources.resource_filename(__name__, '../data/GLOBAL_ELEVATION_05deg.nc')
     
     log.info("Converting DEM files and computing landform stats")
 
