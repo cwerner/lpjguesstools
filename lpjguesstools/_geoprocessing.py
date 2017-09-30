@@ -21,26 +21,25 @@ log = logging.getLogger(__name__)
 from . import NODATA
 from . import ENCODING
 
-def assign_boundary_cond(dem):
+def enlarge_array(a):
     """Pad grid boundaries for proper slope calc at adges."""
 
-    # This creates a grid 2 rows and 2 columns larger than the input
-    ny, nx = dem.shape
-    dem_padded = np.zeros((ny + 2, nx + 2))
-    dem_padded[1:-1,1:-1] = dem  # Insert old grid in center
+    ny, nx = a.shape
+    b = np.zeros((ny + 2, nx + 2))
+    b[1:-1,1:-1] = a  # Insert old grid in center
 
     # Assign boundary conditions - sides
-    dem_padded[0, 1:-1] = dem[0, :]
-    dem_padded[-1, 1:-1] = dem[-1, :]
-    dem_padded[1:-1, 0] = dem[:, 0]
-    dem_padded[1:-1, -1] = dem[:,-1]
+    b[0, 1:-1] = a[0, :]
+    b[-1, 1:-1] = a[-1, :]
+    b[1:-1, 0] = a[:, 0]
+    b[1:-1, -1] = a[:,-1]
 
     # Assign boundary conditions - corners
-    dem_padded[0, 0] = dem[0, 0]
-    dem_padded[0, -1] = dem[0, -1]
-    dem_padded[-1, 0] = dem[-1, 0]
-    dem_padded[-1, -1] = dem[-1, 0]
-    return dem_padded
+    b[0, 0] = a[0, 0]
+    b[0, -1] = a[0, -1]
+    b[-1, 0] = a[-1, 0]
+    b[-1, -1] = a[-1, 0]
+    return b
 
 
 def calc_slope_components(dem, dx):
@@ -52,7 +51,7 @@ def calc_slope_components(dem, dx):
     # of the grids in is the same as that out.
 
     # Assign boundary conditions
-    dem_padded = assign_boundary_cond(dem)
+    dem_padded = enlarge_array(dem)
 
     #Compute finite differences
     Sx = (dem_padded[1:-1, 2:] - dem_padded[1:-1, :-2])/(2*dx)
@@ -66,21 +65,6 @@ def calculate_utm_crs(lon, lat):
     return 'EPSG:%d' % code    
 
 
-def update_attrs(obj, *args, **kwargs):
-    """Update the attributes in a xarray Dataset or DataArray"""
-    # use: ds.pipe(update_attrs, foo='bar')
-
-    obj.attrs.update(*args, **kwargs)
-    return obj
-
-
-def update_encoding(obj, *args, **kwargs):
-    """Update the encoding in a xarray Dataset or DataArray"""
-    # use: ds.pipe(update_encoding, ENCODING)
-    obj.encoding.update(*args, **kwargs)
-    return obj
-
-    
 def apply_mask(a, m):
     """Apply a mask from another masked_array."""
     return np.ma.masked_where(np.ma.getmask(m), a)
@@ -142,7 +126,7 @@ def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source
                                    encoding=ENCODING_INT)
     
     # add scale_factor to slope encoding
-    ds['slope'].pipe(update_encoding, {'scale_factor': 0.1})
+    ds['slope'].tile.update_encoding(dict(scale_factor=0.1))
     
     if source != None:
         ds.tile.set('source', source)
