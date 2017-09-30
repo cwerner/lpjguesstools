@@ -13,6 +13,7 @@ import scipy
 import xarray as xr
 
 from ._tpi import calculate_tpi
+import _xr_tile
 
 log = logging.getLogger(__name__)
 

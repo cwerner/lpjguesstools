@@ -36,12 +36,14 @@ import string
 import time
 import xarray as xr
 
-import _xarrayext
-
-from _geoprocessing import compute_spatial_dataset, classify_aspect, \
-                           classify_landform, analyze_filename_dem
+from ._geoprocessing import analyze_filename_dem, \
+                            classify_aspect, \
+                            classify_landform, \
+                            compute_spatial_dataset
 
 from ._srtm1 import split_srtm1_dataset
+import _xr_geo
+import _xr_tile
 
 log = logging.getLogger(__name__)
 
