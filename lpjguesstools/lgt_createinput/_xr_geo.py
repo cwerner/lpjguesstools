@@ -80,6 +80,7 @@ class GeoAccessor(object):
     def __init__(self, xarray_obj):
         self._obj = xarray_obj
         self._center = None
+        self._extent = None
 
     center = center
     clip = clip
@@ -93,6 +94,7 @@ class GeoAccessor(object):
     def __init__(self, xarray_obj):
         self._obj = xarray_obj
         self._center = None
+        self._extent = None
 
     center = center
     clip = clip
