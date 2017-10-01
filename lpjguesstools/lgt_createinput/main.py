@@ -485,7 +485,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
     _blank = np.empty(SHAPE)
     da_lfcnt = xr.DataArray(_blank.copy()[0,:,:].astype(int), name='lfcnt', 
                             coords=COORDS[1:])
-    da_frac = xr.DataArray(_blank.copy(), name='frac', coords=COORDS)
+    da_frac = xr.DataArray(_blank.copy(), name='fraction', coords=COORDS)
     da_slope = xr.DataArray(_blank.copy(), name='slope', coords=COORDS)
     da_elev = xr.DataArray(_blank.copy(), name='elevation', coords=COORDS)
     
