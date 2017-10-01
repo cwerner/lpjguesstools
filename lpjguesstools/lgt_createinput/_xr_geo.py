@@ -64,7 +64,7 @@ def clip(self, extent):
 def extent(self):
     lon, lat = self._obj.lon, self._obj.lat
     extent = [min(lon), min(lat), max(lon), max(lat)]
-    if self._extent != None:
+    if self._extent is None:
         self._extent = extent
     return extent
 
