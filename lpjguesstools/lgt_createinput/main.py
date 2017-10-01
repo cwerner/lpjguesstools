@@ -382,7 +382,12 @@ def assign_to_dataarray(data, df, lf_full_set, refdata=False):
 
 def spatialclip_df(df, extent):
     """Clip dataframe wit lat lon columns by extent."""
+    if any(e is None for e in extent):
+        log.warn("SpatialClip: extent passed is None.")
     lon1, lat1, lon2, lat2 = extent
+
+    if ('lon' not in df.columns) or ('lat' not in df.columns):
+        log.warn("SpatialClip: lat/ lon cloumn missing in df.")
     return df[((df.lon >= lon1) & (df.lon <= lon2)) & 
               ((df.lat >= lat1) & (df.lat <= lat2))]
 
@@ -486,7 +491,11 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
     
     # check that landform coordinates are in refnc
     df_extent = [frac_lf.lon.min(), frac_lf.lat.min(), frac_lf.lon.max(), frac_lf.lat.max()]
+    log.debug('df_extent: %s' % str(df_extent))
+    log.debug('contains: %s' % str(refnc.geo.contains(df_extent)))
+    
     if refnc.geo.contains(df_extent) == False:
+        
         frac_lf = spatialclip_df(frac_lf, refnc.geo.extent)
         slope_lf = spatialclip_df(slope_lf, refnc.geo.extent)
         elev_lf = spatialclip_df(elev_lf, refnc.geo.extent)

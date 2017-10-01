@@ -63,10 +63,10 @@ def clip(self, extent):
 @property
 def extent(self):
     lon, lat = self._obj.lon, self._obj.lat
-    extent = [min(lon), min(lat), max(lon), max(lat)]
+    extent = [min(lon.values), min(lat.values), max(lon.values), max(lat.values)]
     if self._extent is None:
         self._extent = extent
-    return extent
+    return self._extent
 
 @property
 def is_3d(self):
