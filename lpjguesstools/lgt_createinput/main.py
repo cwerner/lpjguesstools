@@ -266,9 +266,10 @@ def convert_dem_files(cfg, lf_ele_levels):
     if cfg.SRTMSTORE_PATH is not None:
         
         # if glob_string is a directory, add wildcard for globbing
+        glob_string = cfg.SRTMSTORE_PATH
         if os.path.isdir(cfg.SRTMSTORE_PATH):
             glob_string = os.path.join(cfg.SRTMSTORE_PATH, '*')
-        dem_files = sorted(glob.glob(cfg.SRTMSTORE_PATH))
+        dem_files = sorted(glob.glob(glob_string))
 
         existing_tiles = tiles_already_processed(cfg.TILESTORE_PATH)
 
