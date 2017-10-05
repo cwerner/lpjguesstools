@@ -1,4 +1,4 @@
-"""FILE lgt_createinput.py.
+"""FILE lgt_createinput.main.py
 
 This script creates condensed LPJ netcdf files
 for landforms and soil properties
@@ -23,9 +23,7 @@ email: christian.werner@senkenberg.de
 2017/02/07
 """
 
-import click
-from collections import Counter, OrderedDict
-import copy
+from collections import OrderedDict
 import datetime
 import glob 
 import logging
@@ -36,18 +34,20 @@ import string
 import time
 import xarray as xr
 
-from _geoprocessing import compute_spatial_dataset, classify_aspect, \
-                           classify_landform, get_center_coord, \
-                           split_srtm1_dataset, get_global_attr, \
-                           analyze_filename_dem, set_global_attr, \
-                           update_attrs, update_encoding
+from ._geoprocessing import analyze_filename_dem, \
+                            classify_aspect, \
+                            classify_landform, \
+                            compute_spatial_dataset
+
+from ._srtm1 import split_srtm1_dataset
+import _xr_geo
+import _xr_tile
 
 log = logging.getLogger(__name__)
 
 # import constants
 from . import NODATA
 from . import ENCODING
-from . import EPILOG
 
 # quick helpers
 # TODO: move to a dedicated file later
@@ -62,18 +62,18 @@ def time_dec(func):
     return wrapper
 
 
-class Bunch(object):
-    """Simple data storage class."""
-    def __init__(self, adict):
-        self.__dict__.update(adict)
-        
+varSoil = {'TOTC': ('soc', 'Soil Organic Carbon', 'soc', 'percent', 0.1),
+           'SDTO': ('sand', 'Sand', 'sand', 'percent', 1.0),
+           'STPC': ('silt', 'Silt', 'silt', 'percent', 1.0),
+           'CLPC': ('clay', 'Clay', 'clay', 'percent', 1.0)}
 
-varD = {'TOTC': ('SOC', 'Soil Organic Carbon', 'percent', 0.1),
-        'SDTO': ('SAND', 'Sand', 'percent', 1.0),
-        'STPC': ('SILT', 'Silt', 'percent', 1.0),
-        'CLPC': ('CLAY', 'Clay', 'percent', 1.0)}
+varLF = {'lfcnt': ('lfcnt', 'Number of landforms', 'lfcnt', '-', 1.0),
+         'slope': ('slope', 'Slope', 'slope', 'deg', 1.0),
+         'fraction': ('fraction', 'Landform Fraction', 'fraction', '1/1', 1.0),
+         'elevation': ('elevation', 'Elevation', 'elevation', 'm', 1.0)}
 
-soil_vars = sorted(varD.keys())
+soil_vars = sorted(varSoil.keys())
+lf_vars = sorted(varLF.keys())
 
 
 def convert_float_coord_to_string(coord, p=2):
@@ -149,21 +149,6 @@ def define_landform_classes(step, limit, TYPE='SIMPLE'):
     return (lf_full_set, ele_breaks)
 
 
-def tile_already_processed(fname, TILESTORE_PATH):
-    """Check if the tile exists."""
-    existing_tiles = glob.glob(os.path.join(TILESTORE_PATH, '*.nc'))
-    #existing_tiles = [os.path.basename(x) for x in glob.glob(glob_string)]
-    
-    for existing_tile in existing_tiles:
-        source_attr = get_global_attr(existing_tile, 'source')
-        if source_attr != None:
-            # TODO: add second check (version?)
-            _, source_name = analyze_filename_dem(fname)
-            if source_name == source_attr:
-                return True
-    return False    
-
-
 def tiles_already_processed(TILESTORE_PATH):
     """Check if the tile exists."""
     existing_tiles = glob.glob(os.path.join(TILESTORE_PATH, '*.nc'))
@@ -171,10 +156,12 @@ def tiles_already_processed(TILESTORE_PATH):
     
     processed_tiles = []
     for existing_tile in existing_tiles:
-        source_attr = get_global_attr(existing_tile, 'source')
-        if source_attr != None:
-            _, source_name = analyze_filename_dem(source_attr)
-            processed_tiles.append(source_name)
+        with xr.open_dataset(existing_tile) as ds:
+            source = ds.tile.get('source')
+            if source is not None:
+                processed_tiles.append(source)
+            else:
+                log.warn('Source attr not set in file %s.' % existing_tile)
     return processed_tiles
 
 
@@ -231,27 +218,33 @@ def get_tile_summary(ds, cutoff=0):
         lf_elevation = ds['elevation'].values[ix].mean()
         df.loc[i, 'slope'] = lf_slope
         df.loc[i, 'elevation'] = lf_elevation
-        
-    #df = df.sort_values(by='cells', ascending=False)
-    df.reset_index(inplace=True)
+    
     return df
 
 
 def tile_files_compatible(files):
     """Get global attribute from all tile netcdf files and check
-    they are the same.
+    they were created with an identical elevation step.
     """
-    x = [get_global_attr(x, 'lgt.elevation_step') for x in files]
-    if all(x):
-        if x[0] != None:
-            return True
-    else:
-        return False
+
+    fingerprints = []
+    for file in files:
+        with xr.open_dataset(file) as ds:
+            fingerprint = (ds.tile.get('elevation_step'), ds.tile.get('classification'))
+        fingerprints.append(fingerprint)
+    
+    # check if elements are equal    
+    if all(x==fingerprints[0] for x in fingerprints):
+        # check if there are Nones' in any fingerprint
+        if not all(fingerprints):
+            return False
+        return True
+    return False
 
 
 def create_stats_table(df, var):
     """Create a landform info table for all coords and given var."""
-    
+
     df_ = df[var].unstack(level=-1, fill_value=NODATA)
     # rename columns and split coord tuple col to lon and lat col
     df_.columns = ['lf' + str(col) for col in df_.columns]
@@ -273,9 +266,10 @@ def convert_dem_files(cfg, lf_ele_levels):
     if cfg.SRTMSTORE_PATH is not None:
         
         # if glob_string is a directory, add wildcard for globbing
+        glob_string = cfg.SRTMSTORE_PATH
         if os.path.isdir(cfg.SRTMSTORE_PATH):
             glob_string = os.path.join(cfg.SRTMSTORE_PATH, '*')
-        dem_files = sorted(glob.glob(cfg.SRTMSTORE_PATH))
+        dem_files = sorted(glob.glob(glob_string))
 
         existing_tiles = tiles_already_processed(cfg.TILESTORE_PATH)
 
@@ -316,7 +310,7 @@ def convert_dem_files(cfg, lf_ele_levels):
                         
                         # store file in tilestore
                         # get tile center coordinate and name
-                        lon, lat = get_center_coord(tile)
+                        lon, lat = tile.geo.center()
                         lonlat_string = convert_float_coord_to_string((lon,lat))
                         tile_name = "srtm1_processed_%s.nc" % lonlat_string
                         tile.to_netcdf(os.path.join(cfg.TILESTORE_PATH, tile_name), \
@@ -344,11 +338,11 @@ def compute_statistics(cfg):
         log.debug('Computing statistics for tile %s' % tile)
         with xr.open_dataset(tile) as ds:
             lf_stats = get_tile_summary(ds, cutoff=cfg.CUTOFF)
+            lf_stats.reset_index(inplace=True)
             number_of_ids = len(lf_stats)
-            lon, lat = get_center_coord(ds)
-            
-            coords = pd.Series([(round(lon,2),round(lat,2), int(number_of_ids)) for x in range(len(lf_stats))])
-            lf_stats['coord'] = coords        
+            lon, lat = ds.geo.center()
+            coord_tuple = (round(lon,2),round(lat,2), int(number_of_ids)) 
+            lf_stats['coord'] = pd.Series([coord_tuple for _ in range(len(lf_stats))])
             lf_stats.set_index(['coord', 'lf_id'], inplace=True)
             tiles_stats.append( lf_stats )
 
@@ -387,9 +381,14 @@ def assign_to_dataarray(data, df, lf_full_set, refdata=False):
     return data
 
 
-def spatialclip_dataframe(df, extent):
+def spatialclip_df(df, extent):
     """Clip dataframe wit lat lon columns by extent."""
+    if any(e is None for e in extent):
+        log.warn("SpatialClip: extent passed is None.")
     lon1, lat1, lon2, lat2 = extent
+
+    if ('lon' not in df.columns) or ('lat' not in df.columns):
+        log.warn("SpatialClip: lat/ lon cloumn missing in df.")
     return df[((df.lon >= lon1) & (df.lon <= lon2)) & 
               ((df.lat >= lat1) & (df.lat <= lat2))]
 
@@ -419,35 +418,55 @@ def build_site_netcdf(soilref, elevref, extent=None):
     # identify locations that need filling and use left neighbor
     smask = np.where(ds_soil['TOTC'].to_masked_array().mask, 1, 0)
     emask = np.where(ds_ele['data'].to_masked_array().mask, 1, 0)
-    missing = np.where((smask == 1) & (emask == 0), 1, 0)
 
+    # no soil data but elevation: gap-fill wioth neighbors
+    missing = np.where((smask == 1) & (emask == 0), 1, 0)
     ix, jx = np.where(missing == 1)
-    for i, j in zip(ix, jx):
-        for v in soil_vars:
-            ds_soil[v][i, j] = ds_soil[v][i, j-1]
+    
+    if len(ix) > 0:
+        log.debug('Cells with elevation but no soil data [BEFORE GF: %d].' % len(ix))
+        
+        for i, j in zip(ix, jx):
+            for v in soil_vars:
+                if np.isfinite(ds_soil[v][i, j-1]):
+                    ds_soil[v][i, j] = ds_soil[v][i, j-1].copy(deep=True)
+                elif np.isfinite(ds_soil[v][i, j+1]):
+                    ds_soil[v][i, j] = ds_soil[v][i, j+1].copy(deep=True)
+                else:
+                    print 'neighbours have nodata !!!'
+                x = ds_soil[v][i, j].to_masked_array()
+
+        smask2 = np.where(ds_soil['TOTC'].to_masked_array().mask, 1, 0)
+        missing = np.where((smask2 == 1) & (emask == 0), 1, 0)
+        ix, jx = np.where(missing == 1)
+        log.debug('Cells with elevation but no soil data [AFTER GF:  %d].' % len(ix))
 
     dsout = xr.Dataset()
     # soil vars
     for v in soil_vars:
-        conv = varD[v][-1]
+        conv = varSoil[v][-1]
         da = ds_soil[v].copy(deep=True) * conv
-        da.name = varD[v][0]
+        da.name = varSoil[v][0]
 
-        vattr = {'name': varD[v][0],
-                 'long_name': varD[v][1],
-                 'units': varD[v][2]}
+        vattr = {'name': varSoil[v][0],
+                 'long_name': varSoil[v][1],
+                 'standard_name': varSoil[v][2],
+                 'units': varSoil[v][3],
+                 'coordinates': "lat lon"}
                  
-        da.pipe(update_attrs, vattr)
-        da.pipe(update_encoding, ENCODING)    
+        da.tile.update_attrs(vattr)
+        da.tile.update_encoding(ENCODING)
+         
         da[:] = np.ma.masked_where(emask, da.to_masked_array())
         dsout[da.name] = da
 
     # ele var
     da = xr.full_like(da.copy(deep=True), np.nan)
-    da.name = 'ELEVATION'
-    vattr = {'name': 'elevation', 'long_name': 'Elevation', 'units': 'meters'}
-    da.pipe(update_attrs, vattr)
-    da.pipe(update_encoding, ENCODING)
+    da.name = 'elevation'
+    vattr = {'name': 'elevation', 'long_name': 'Elevation', 
+             'units': 'meters',  'standard_name': 'elevation'}
+    da.tile.update_attrs(vattr)
+    da.tile.update_encoding(ENCODING)
 
     da[:] = ds_ele['data'].to_masked_array()
     dsout[da.name] = da
@@ -467,25 +486,20 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
     _blank = np.empty(SHAPE)
     da_lfcnt = xr.DataArray(_blank.copy()[0,:,:].astype(int), name='lfcnt', 
                             coords=COORDS[1:])
-    da_frac = xr.DataArray(_blank.copy(), name='frac', coords=COORDS)
+    da_frac = xr.DataArray(_blank.copy(), name='fraction', coords=COORDS)
     da_slope = xr.DataArray(_blank.copy(), name='slope', coords=COORDS)
     da_elev = xr.DataArray(_blank.copy(), name='elevation', coords=COORDS)
     
     # check that landform coordinates are in refnc
-    lat_min, lat_max = frac_lf.lat.min(), frac_lf.lat.max()
-    lon_min, lon_max = frac_lf.lon.min(), frac_lf.lon.max()
+    df_extent = [frac_lf.lon.min(), frac_lf.lat.min(), frac_lf.lon.max(), frac_lf.lat.max()]
+    log.debug('df_extent: %s' % str(df_extent))
+    log.debug('contains: %s' % str(refnc.geo.contains(df_extent)))
     
-    lats = refnc['lat'].values.tolist()
-    lons = refnc['lon'].values.tolist()
-    
-    if ((lat_min < min(lats)) | (lat_max > max(lats)) |  
-        (lon_min < min(lons)) | (lon_max > max(lons))):
-        log.warn('DEM tiles not within specified extent. Clipping.')
-
-    # potentially clip dataframes
-    frac_lf = spatialclip_dataframe(frac_lf, [min(lons), min(lats), max(lons), max(lats)])
-    slope_lf = spatialclip_dataframe(slope_lf, [min(lons), min(lats), max(lons), max(lats)])
-    elev_lf = spatialclip_dataframe(elev_lf, [min(lons), min(lats), max(lons), max(lats)])
+    if refnc.geo.contains(df_extent) == False:
+        
+        frac_lf = spatialclip_df(frac_lf, refnc.geo.extent)
+        slope_lf = spatialclip_df(slope_lf, refnc.geo.extent)
+        elev_lf = spatialclip_df(elev_lf, refnc.geo.extent)
 
     # dump files
     frac_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_frac.csv'), index=False)
@@ -502,28 +516,46 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
     dsout[da_frac.name] = da_frac
     dsout[da_slope.name] = da_slope
     dsout[da_elev.name] = da_elev
+
+    for v in dsout.data_vars:
+        vattr = {}
+        if v in lf_vars:
+            vattr = {'name': varLF[v][0],
+                     'long_name': varLF[v][1],
+                     'standard_name': varLF[v][2],
+                     'units': varLF[v][3],
+                     'coordinates': "lat lon"}
+        dsout[v].tile.update_attrs(vattr)
+        dsout[v].tile.update_encoding(ENCODING)
+    
+    dsout['lat'].tile.update_attrs(dict(standard_name='latitude',
+                                        long_name='latitude',
+                                        units='degrees_north'))
+
+    dsout['lon'].tile.update_attrs(dict(standard_name='longitude',
+                                        long_name='longitude',
+                                        units='degrees_east'))
+
+    dsout['lf_id'].tile.update_attrs(dict(standard_name='lf_id',
+                                          long_name='lf_id',
+                                          units='-'))
     for dv in dsout.data_vars:
-        dsout[dv].pipe(update_encoding, ENCODING)
+        dsout[dv].tile.update_encoding(ENCODING)
 
     # register the specific landform properties (elevation steps, classfication)
-    set_global_attr(dsout, 'lgt.elevation_step', elevation_levels[1])
-    set_global_attr(dsout, 'lgt.classification', cfg.CLASSIFICATION.lower())
+    dsout.tile.set('elevation_step', elevation_levels[1])
+    dsout.tile.set('classification', cfg.CLASSIFICATION.lower())
 
     return dsout
 
-
-def copy_global_lgt_attrs(ds, dsout):
-    """Copy global lgt attributes from source to target dataset."""
-    source_attrs = dict([(k, v) for k, v in ds.attrs.items() if 'lgt.' in k])
-    dsout.attrs.update(source_attrs)
 
 def build_compressed(ds):
     """Build LPJ-Guess 4.0 compatible compressed netcdf file."""
     # identify landforms netcdf
     if 'lfcnt' in ds.data_vars:
         v = 'lfcnt'
-    elif 'ELEVATION' in ds.data_vars:
-        v = 'ELEVATION'
+    elif 'elevation' in ds.data_vars:
+        v = 'elevation'
     else:
         log.error("Not a valid xr.Dataset (landforms or site only).")
 
@@ -556,9 +588,17 @@ def build_compressed(ds):
     lats = xr.DataArray(latL, name='lat', coords=[('land_id', LFIDS)])
     lons = xr.DataArray(lonL, name='lon', coords=[('land_id', LFIDS)])
 
+    lats.tile.update_attrs(dict(standard_name='latitude',
+                                long_name='latitude',
+                                units='degrees_north'))
+
+    lons.tile.update_attrs(dict(standard_name='longitude',
+                                long_name='longitude',
+                                units='degrees_east'))
+
     # create land_id reference array
     # TODO: clip land_id array to Chile country extent?
-    da_ids.pipe(update_encoding, ENCODING)
+    da_ids.tile.update_encoding(ENCODING)
     ds_ids = da_ids.to_dataset(name='land_id')
 
     # create xr.Dataset
@@ -570,11 +610,10 @@ def build_compressed(ds):
     for v in ds.data_vars:
         if is_3d(ds, v):
             _shape = (len(LFIDS), len(ds[ds[v].dims[0]]))
-            COORDS = [('land_id', LFIDS), ('lf_id', ds.coords['lf_id'])]
+            COORDS = [('land_id', LFIDS), ('lf_id', ds['lf_id'])]
         else:
             _shape = (len(LFIDS),)
             COORDS = [('land_id', LFIDS)]
-            
         _blank = np.ones( _shape )
         _da = xr.DataArray(_blank[:], name=v, coords=COORDS)
         
@@ -583,12 +622,18 @@ def build_compressed(ds):
             vals = ds[v].sel(lat=lat, lon=lon).to_masked_array()
             _da.loc[land_id] = vals
         
-        _da.pipe(update_attrs, ds[v].attrs)
-        _da.pipe(update_encoding, ENCODING)
+        _da.tile.update_attrs(ds[v].attrs)
+        _da.tile.update_encoding(ENCODING)
 
         dsout[_da.name] = _da
 
-    copy_global_lgt_attrs(ds, dsout)
+        if is_3d(ds, v):
+            dsout['lf_id'].tile.update_attrs(dict(standard_name='lf_id',
+                                                  long_name='lf_id',
+                                                  units='-'))
+
+    # copy lgt attributes from ssrc to dst
+    dsout.tile.copy_attrs(ds)
 
     return (ds_ids, dsout)
 
@@ -625,8 +670,8 @@ def main(cfg):
     
     # default soil and elevation data (contained in package)
     import pkg_resources
-    SOIL_NC      = pkg_resources.resource_filename(__name__, 'data/GLOBAL_WISESOIL_DOM_05deg.nc')
-    ELEVATION_NC = pkg_resources.resource_filename(__name__, 'data/GLOBAL_ELEVATION_05deg.nc')
+    SOIL_NC      = pkg_resources.resource_filename(__name__, '../data/GLOBAL_WISESOIL_DOM_05deg.nc')
+    ELEVATION_NC = pkg_resources.resource_filename(__name__, '../data/GLOBAL_ELEVATION_05deg.nc')
     
     log.info("Converting DEM files and computing landform stats")
 
@@ -648,7 +693,7 @@ def main(cfg):
                                        lf_ele_levels, refnc=sitenc)
     
     # clip to joined mask
-    elev_mask = np.where(sitenc['ELEVATION'].values == NODATA, 0, 1)
+    elev_mask = np.where(sitenc['elevation'].values == NODATA, 0, 1)
     landform_mask = np.where(landformnc['lfcnt'].values == NODATA, 0, 1)
     valid_mask = elev_mask * landform_mask
     
@@ -682,83 +727,3 @@ def main(cfg):
     log.info("Done")
 
 
-# command line arguments
-CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
-click.Context.get_usage = click.Context.get_help
-
-@click.command(context_settings=CONTEXT_SETTINGS, epilog=EPILOG)
-
-@click.option('--classfication', type=click.Choice(['SIMPLE', 'WEISS']), 
-                    default='SIMPLE', show_default=True,
-                    help='classification scheme')
-
-@click.option('--cutoff', default=1.0, show_default=True,
-                    help='required area fraction [%]')
-
-@click.option('--dems', metavar='PATH',
-                    help='source for DEM files')
-
-@click.option('--extent', nargs=4, type=click.FLOAT, metavar='LON1 LAT1 LON2 LAT2',
-                    help='extent of output netcdf files')
-
-@click.option('--force-overwrite', is_flag=True, default=False, 
-                    help='overwrite tiles even if they already exists')
-
-@click.option('--gridlist', default='gridlist.txt', 
-                    help='name of created gridlist file')
-
-@click.option('--masks', metavar='PATH',
-                    help='source for water masks (shp)')
-
-@click.option('--verbose', is_flag=True, 
-                    help='increase logging info')
-
-@click.version_option()
-
-@click.argument('storage', type=click.Path(exists=True))
-@click.argument('outdir', type=click.Path(exists=True)) 
-
-def cli(cutoff, dems, masks, gridlist, extent, classfication, storage, outdir, verbose, force_overwrite):
-    """LPJ-GUESS 4.0 subpixel mode input creation tool
-    
-    This tools creates site and landform netCDF files and a gridlist file
-    from SRTM1 (or potentially other) elevation data.
-     
-    """
-    
-    # example:
-    #./lgt_createinput.py processed output --dems=srtm1/*.zip --masks=srtm1_shp_mask --extent -76 -56 -66 -16
-
-    if verbose:
-        logging.getLogger(__name__).setLevel(logging.DEBUG)
-    else:
-        logging.getLogger(__name__).setLevel(logging.INFO)
-        
-    if dems is not None:
-        SRTMSTORE_PATH = dems
-    
-    if masks is not None:
-        WATERMASKSTORE_PATH = masks
-
-    REGION = None
-    if len(extent) == 4:
-        REGION = list(extent)
-        
-    
-    # the setup dictionary to convert into a bunch obj
-    config_data=dict(SRTMSTORE_PATH=dems,
-                     WATERMASKSTORE_PATH=masks,
-                     TILESTORE_PATH=storage,
-                     REGION=REGION,
-                     CLASSIFICATION=classfication,
-                     CUTOFF=cutoff,
-                     OUTPUT_PATH=outdir,
-                     GRIDLIST_TXT=gridlist,
-                     OUTDIR=outdir,
-                     OVERWRITE=force_overwrite)
-    
-    # TODO: change logging level based on verbose flag
-    cfg = Bunch(config_data)
-
-    main(cfg)
-    

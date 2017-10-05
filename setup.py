@@ -9,7 +9,7 @@ from os import path
 import re
 
 version = re.search('^__version__\s*=\s*"(.*)"',
-                    open('lpjguesstools/lgt_convert.py').read(), re.M).group(1)
+                    open('lpjguesstools/lgt_convert/lgt_convert.py').read(), re.M).group(1)
 
 here = path.abspath(path.dirname(__file__))
 
@@ -87,8 +87,8 @@ setup(name='lpjguesstools',
                                       'data/GLOBAL_ELEVATION_05deg.nc']},
       include_package_data=True,
       entry_points={'console_scripts': [
-          'lgt_convert=lpjguesstools.lgt_convert:main',
-          'lgt_createinput=lpjguesstools.lgt_createinput:cli']},
+          'lgt_convert=lpjguesstools.lgt_convert.lgt_convert:main',
+          'lgt_createinput=lpjguesstools.lgt_createinput.cli:cli']},
       test_suite='lpjguess2nc.test.test_lpjguess2nc',
       cmdclass={'test': PyTest, 'sdist': PyPack},
       dependency_links=dependency_links)

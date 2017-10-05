@@ -13,6 +13,7 @@ import scipy
 import xarray as xr
 
 from ._tpi import calculate_tpi
+import _xr_tile
 
 log = logging.getLogger(__name__)
 
@@ -20,26 +21,25 @@ log = logging.getLogger(__name__)
 from . import NODATA
 from . import ENCODING
 
-def assign_boundary_cond(dem):
+def enlarge_array(a):
     """Pad grid boundaries for proper slope calc at adges."""
 
-    # This creates a grid 2 rows and 2 columns larger than the input
-    ny, nx = dem.shape
-    dem_padded = np.zeros((ny + 2, nx + 2))
-    dem_padded[1:-1,1:-1] = dem  # Insert old grid in center
+    ny, nx = a.shape
+    b = np.zeros((ny + 2, nx + 2))
+    b[1:-1,1:-1] = a  # Insert old grid in center
 
     # Assign boundary conditions - sides
-    dem_padded[0, 1:-1] = dem[0, :]
-    dem_padded[-1, 1:-1] = dem[-1, :]
-    dem_padded[1:-1, 0] = dem[:, 0]
-    dem_padded[1:-1, -1] = dem[:,-1]
+    b[0, 1:-1] = a[0, :]
+    b[-1, 1:-1] = a[-1, :]
+    b[1:-1, 0] = a[:, 0]
+    b[1:-1, -1] = a[:,-1]
 
     # Assign boundary conditions - corners
-    dem_padded[0, 0] = dem[0, 0]
-    dem_padded[0, -1] = dem[0, -1]
-    dem_padded[-1, 0] = dem[-1, 0]
-    dem_padded[-1, -1] = dem[-1, 0]
-    return dem_padded
+    b[0, 0] = a[0, 0]
+    b[0, -1] = a[0, -1]
+    b[-1, 0] = a[-1, 0]
+    b[-1, -1] = a[-1, 0]
+    return b
 
 
 def calc_slope_components(dem, dx):
@@ -51,7 +51,7 @@ def calc_slope_components(dem, dx):
     # of the grids in is the same as that out.
 
     # Assign boundary conditions
-    dem_padded = assign_boundary_cond(dem)
+    dem_padded = enlarge_array(dem)
 
     #Compute finite differences
     Sx = (dem_padded[1:-1, 2:] - dem_padded[1:-1, :-2])/(2*dx)
@@ -65,21 +65,6 @@ def calculate_utm_crs(lon, lat):
     return 'EPSG:%d' % code    
 
 
-def update_attrs(obj, *args, **kwargs):
-    """Update the attributes in a xarray Dataset or DataArray"""
-    # use: ds.pipe(update_attrs, foo='bar')
-
-    obj.attrs.update(*args, **kwargs)
-    return obj
-
-
-def update_encoding(obj, *args, **kwargs):
-    """Update the encoding in a xarray Dataset or DataArray"""
-    # use: ds.pipe(update_encoding, ENCODING)
-    obj.encoding.update(*args, **kwargs)
-    return obj
-
-    
 def apply_mask(a, m):
     """Apply a mask from another masked_array."""
     return np.ma.masked_where(np.ma.getmask(m), a)
@@ -98,31 +83,32 @@ def calc_slope(Sx, Sy):
     return np.rad2deg(np.sqrt(Sx**2 + Sy**2))
 
 
-def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source=None):
-    """Create a datasets from dem, dem_mask, slope and aspect."""
+def derive_coordinates(info):
+    """Calculate tile lat lon information from GTiff info."""
+    dx, _, leftc, _, dy, upperc, _, _, _ = info['transform']
+    cellsx = info['width']
+    cellsy = info['height']
+    lowerc = upperc - (cellsy*abs(dy))
+    lons = np.linspace(leftc, leftc+((cellsx+1)*dx), cellsx)
+    lats = np.linspace(lowerc, lowerc+((cellsy+1)*abs(dy)), cellsy)
+    # flipped lats
+    return dict(lon=lons, lat=lats[::-1])
+
+
+def create_tile(dem, dem_mask, slope, aspect, landform, info=None, source=None):
+    """Create a tile dataset from dem, dem_mask, slope and aspect."""
     
     # if a rasterio transfrom info is passed
     if info != None:
-        dx, _, leftc, _, dy, upperc, _, _, _ = info['transform']
-        cellsx = info['width']
-        cellsy = info['height']
-        lowerc = upperc - (cellsy*abs(dy))
-        lons = np.linspace(leftc, leftc+((cellsx+1)*dx), cellsx)
-        lats = np.linspace(lowerc, lowerc+((cellsy+1)*abs(dy)), cellsy)
-        
-        COORDS = dict(lat=lats[::-1], lon=lons)
+        COORDS = derive_coordinates(info)
         DIMS = ['lat', 'lon']
     else:
-        log.warn('No spatial information provided. y-axis likely flipped.')
+        log.warn('No spatial information provided. Y-axis likely flipped.')
         COORDS={}
         DIMS=['dim_0', 'dim_1']
     
     # default mask
     m = np.ma.masked_where(dem_mask == 0, dem_mask)
-    
-    def apply_mask(a, m):
-        """Apply a mask from another masked_array."""
-        return np.ma.masked_where(np.ma.getmask(m), a)
 
     # special encoding (force output as Int16)
     ENCODING_INT = dict(ENCODING)
@@ -141,10 +127,10 @@ def create_dem_dataset(dem, dem_mask, slope, aspect, landform, info=None, source
                                    encoding=ENCODING_INT)
     
     # add scale_factor to slope encoding
-    ds['slope'].pipe(update_encoding, {'scale_factor': 0.1})
+    ds['slope'].tile.update_encoding(dict(scale_factor=0.1))
     
     if source != None:
-        set_global_attr(ds, 'source', source)
+        ds.tile.set('source', source)
     return ds
 
 
@@ -325,26 +311,14 @@ def compute_spatial_dataset(fname_dem, fname_shp=None):
                                 aspect = np.ma.masked_array(ds_geo2.read(4), mask=~dem_mask)
                                 landform = np.ma.masked_array(ds_geo2.read(5), mask=~dem_mask)
                                 
-                                #log.info("Dumping GTiff 1arc file for debugging.")
-                                #print msrc_kwargs
-                                #with rasterio.open('test.tiff', 'w', **msrc_kwargs) as dst:
-                                #    for i in range(1,6):
-                                #        dst.write(ds_geo2.read(i), i)
 
-    # create dataset    
-    ds = create_dem_dataset(dem, dem_mask, slope, aspect, landform, 
-                            info=msrc_kwargs, source=source_name_dem)
+    # create tile dataset    
+    ds = create_tile(dem, dem_mask, slope, aspect, landform, 
+                     info=msrc_kwargs, source=source_name_dem)
     
     return ds
 
 # xarray-based methods
-
-def get_center_coord(ds):
-    """Return the (lon, lat) of dataset (center)"""
-    lat_c = min(ds.lat.values) + (max(ds.lat.values) - min(ds.lat.values)) * 0.5
-    lon_c = min(ds.lon.values) + (max(ds.lon.values) - min(ds.lon.values)) * 0.5
-    return (lon_c, lat_c)
-        
 
 def classify_aspect(ds, TYPE='SIMPLE'):
     """Classify dataarray from continuous aspect to 1,2,3,4. or 1, 2"""
@@ -374,7 +348,7 @@ def classify_aspect(ds, TYPE='SIMPLE'):
     da_asp_cl = xr.full_like(ds['aspect'], np.nan)
     ds['aspect_class'] = da_asp_cl
     ds['aspect_class'][:] = asp_cl
-    ds['aspect_class'].pipe(update_encoding, ENCODING_INT)
+    ds['aspect_class'].tile.update_encoding(ENCODING_INT)
     return ds
 
 
@@ -391,7 +365,7 @@ def classify_landform(ds, elevation_levels=[], TYPE='SIMPLE'):
         aspect_lf = [2,3,5]
     else:
         log.error('Currently only classifiation schemes WEISS, SIMPLE supported.')
-    set_global_attr(ds, 'lgt.classification', TYPE.lower())
+    ds.tile.set('classification', TYPE.lower())
     
     aspect_lfs = (ds['aspect_class'].to_masked_array() > 0) & \
                   (np.in1d(ds['landform'].to_masked_array(), aspect_lf).reshape(SHAPE))
@@ -404,7 +378,7 @@ def classify_landform(ds, elevation_levels=[], TYPE='SIMPLE'):
     ele = ds['elevation'].to_masked_array()
     if len(elevation_levels) > 0:
         # add global elevation step attribute (second element, first is lower boundary)
-        set_global_attr(ds, 'lgt.elevation_step', "%s" % elevation_levels[1])
+        ds.tile.set('elevation_step', elevation_levels[1])
 
         for i, (lb, ub) in enumerate(zip(elevation_levels[:-1], elevation_levels[1:])):
             lf_cl = np.ma.where(((ele >= lb) & (ele < ub)), lf_cl + (i+1) * 100, lf_cl)   
@@ -417,74 +391,5 @@ def classify_landform(ds, elevation_levels=[], TYPE='SIMPLE'):
     da_lf_cl = xr.full_like(ds['landform'], np.nan)
     ds['landform_class'] = da_lf_cl
     ds['landform_class'][:] = lf_cl
-    ds['landform_class'].pipe(update_encoding, ENCODING_INT)
+    ds['landform_class'].tile.update_encoding(ENCODING_INT)
     return ds
-
-
-def is_empty_tile(ds):
-    """Check if this tile has no data (sum(mask)==0)."""
-    if ds['mask'].sum() == 0:
-        return True
-    return False
-
-
-def split_srtm1_dataset(ds):
-    """Split a 1arc SRTM1 dataset into 4 0.5x0.5 tiles."""
-    lats_ix = np.arange(len(ds['lat'].values))
-    lons_ix = np.arange(len(ds['lon'].values))
-    lats = [x.tolist() for x in np.array_split(lats_ix, 2)]
-    lons = [x.tolist() for x in np.array_split(lons_ix, 2)]
-
-    # if we have an uneven length of split arrays (srtm1 data with 3601 px)
-    if len(lats[0]) != len(lats[1]):
-        lats[1] = [lats[0][-1]] + lats[1]
-
-    if len(lons[0]) != len(lons[1]):
-        lons[1] = [lons[0][-1]] + lons[1]
-
-    # split into 4 tiles [0.5x0.5 deg]
-    ds1 = ds[dict(lat=lats[0], lon=lons[0])]
-    ds2 = ds[dict(lat=lats[0], lon=lons[1])]
-    ds3 = ds[dict(lat=lats[1], lon=lons[1])]
-    ds4 = ds[dict(lat=lats[1], lon=lons[0])]
-    
-    return_tiles = []
-    for i, ds_ in enumerate([ds1, ds2, ds3, ds4]):
-        if is_empty_tile(ds_):
-            return_tiles.append(None)
-        else:
-            return_tiles.append(ds_)
-    
-    return return_tiles
-
-
-def get_global_attr(ds, attr_name):
-    """Get the global dataset attribute."""
-    if type(ds) == str:
-        attr = None
-        with xr.open_dataset(ds) as ds:
-            if ds.attrs.has_key(attr_name):
-                attr = ds.attrs[attr_name]
-        return attr
-    else:
-        if ds.attrs.has_key(attr_name):
-            return ds.attrs[attr_name]
-        else:
-            return None
-
-
-def set_global_attr(ds, attr_name, value, overwrite=False):
-    """Set the global dataset attribute."""
-    if type(ds) == str:
-        with xr.open_dataset(ds) as ds:
-            if ds.attrs.has_key(attr_name) and overwrite==False:
-                log.error("Trying to set attr %s to %s (it already exists)." % (
-                          attr_name, str(value)))
-            else:
-                ds.attrs[attr_name] = value
-    else:
-        if ds.attrs.has_key(attr_name) and overwrite==False:
-            log.error("Trying to set attr %s to %s (it already exists)." % (
-                      attr_name, str(value)))
-        else:
-            ds.attrs[attr_name] = value
