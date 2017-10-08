@@ -59,11 +59,11 @@ def cli(cutoff, dems, masks, gridlist, extent, classfication, storage, outdir, v
     
     This tools creates site and landform netCDF files and a gridlist file
     from SRTM1 (or potentially other) elevation data.
-     
+    
+    example: ./lgt_createinput.py processed output --dems=srtm1/*.zip --masks=srtm1_shp_mask --extent -76 -56 -66 -16
     """
     
-    # example:
-    #./lgt_createinput.py processed output --dems=srtm1/*.zip --masks=srtm1_shp_mask --extent -76 -56 -66 -16
+    # ./lgt_createinput.py processed output --dems=srtm1/*.zip --masks=srtm1_shp_mask --extent 8 48 12 52
 
     if verbose:
         logging.getLogger(__name__).setLevel(logging.DEBUG)
