@@ -70,6 +70,7 @@ varSoil = {'TOTC': ('soc', 'Soil Organic Carbon', 'soc', 'percent', 0.1),
 
 varLF = {'lfcnt': ('lfcnt', 'Number of landforms', 'lfcnt', '-', 1.0),
          'slope': ('slope', 'Slope', 'slope', 'deg', 1.0),
+         'asp_slope': ('asp_slope', 'Aspect-corrected Slope', 'asp_slope', 'deg', 1.0),         
          'fraction': ('fraction', 'Landform Fraction', 'fraction', '1/1', 1.0),
          'elevation': ('elevation', 'Elevation', 'elevation', 'm', 1.0)}
 
@@ -209,6 +210,7 @@ def get_tile_summary(ds, cutoff=0):
     # also get lf-avg of elevation and slope
     df['elevation'] = -1
     df['slope'] = -1
+    df['asp_slope'] = -1
 
     a_lf = ds['landform_class'].to_masked_array()
     
@@ -216,8 +218,10 @@ def get_tile_summary(ds, cutoff=0):
     for i, r in df.iterrows():
         ix = a_lf == int(r['lf_id'])
         lf_slope = ds['slope'].values[ix].mean()
+        lf_asp_slope = ds['asp_slope'].values[ix].mean()        
         lf_elevation = ds['elevation'].values[ix].mean()
         df.loc[i, 'slope'] = lf_slope
+        df.loc[i, 'asp_slope'] = lf_asp_slope
         df.loc[i, 'elevation'] = lf_elevation
     
     return df
@@ -353,7 +357,8 @@ def compute_statistics(cfg):
     frac_lf = create_stats_table(df, 'frac_scaled')
     elev_lf = create_stats_table(df, 'elevation')
     slope_lf = create_stats_table(df, 'slope')
-    return (frac_lf, elev_lf, slope_lf)
+    asp_slope_lf = create_stats_table(df, 'asp_slope')    
+    return (frac_lf, elev_lf, slope_lf, asp_slope_lf)
 
 
 def is_3d(ds, v):
@@ -476,7 +481,7 @@ def build_site_netcdf(soilref, elevref, extent=None):
 
 
 @time_dec
-def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevation_levels, refnc=None):
+def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf, cfg, elevation_levels, refnc=None):
     """Build landform netcdf based on refnc dims and datatables."""
     
     dsout = xr.Dataset()
@@ -490,6 +495,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
                             coords=COORDS[1:])
     da_frac = xr.DataArray(_blank.copy(), name='fraction', coords=COORDS)
     da_slope = xr.DataArray(_blank.copy(), name='slope', coords=COORDS)
+    da_asp_slope = xr.DataArray(_blank.copy(), name='asp_slope', coords=COORDS)
     da_elev = xr.DataArray(_blank.copy(), name='elevation', coords=COORDS)
     
     # check that landform coordinates are in refnc
@@ -501,22 +507,26 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, cfg, elevatio
         
         frac_lf = spatialclip_df(frac_lf, refnc.geo.extent)
         slope_lf = spatialclip_df(slope_lf, refnc.geo.extent)
+        asp_slope_lf = spatialclip_df(asp_slope_lf, refnc.geo.extent)
         elev_lf = spatialclip_df(elev_lf, refnc.geo.extent)
 
     # dump files
     frac_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_frac.csv'), index=False)
     slope_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_slope.csv'), index=False)
+    asp_slope_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_asp_slope.csv'), index=False)
     elev_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_elev.csv'), index=False)    
     # assign dataframe data to arrays
     da_lfcnt = assign_to_dataarray(da_lfcnt, frac_lf, lf_full_set, refdata=True)
     da_frac = assign_to_dataarray(da_frac, frac_lf, lf_full_set)
     da_slope = assign_to_dataarray(da_slope, slope_lf, lf_full_set)
+    da_asp_slope = assign_to_dataarray(da_asp_slope, asp_slope_lf, lf_full_set)
     da_elev = assign_to_dataarray(da_elev, elev_lf, lf_full_set)
 
     # store arrays in dataset
     dsout[da_lfcnt.name] = da_lfcnt
     dsout[da_frac.name] = da_frac
     dsout[da_slope.name] = da_slope
+    dsout[da_asp_slope.name] = da_asp_slope
     dsout[da_elev.name] = da_elev
 
     for v in dsout.data_vars:
@@ -686,12 +696,12 @@ def main(cfg):
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
 
     # compute stats from tiles
-    df_frac, df_elev, df_slope = compute_statistics(cfg)
+    df_frac, df_elev, df_slope, df_asp_slope = compute_statistics(cfg)
     
     # build netcdfs
     log.info("Building 2D netCDF files")
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
-    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, cfg, 
+    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, df_asp_slope, cfg, 
                                        lf_ele_levels, refnc=sitenc)
     
     # clip to joined mask
