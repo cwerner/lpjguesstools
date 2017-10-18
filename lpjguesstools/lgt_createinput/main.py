@@ -37,6 +37,7 @@ import xarray as xr
 from ._geoprocessing import analyze_filename_dem, \
                             classify_aspect, \
                             classify_landform, \
+                            calculate_asp_slope, \
                             compute_spatial_dataset
 
 from ._srtm1 import split_srtm1_dataset
@@ -126,9 +127,9 @@ def define_landform_classes(step, limit, TYPE='SIMPLE'):
     #  Name           SIMPLE     WEISS
     #
     #  north             1          1
-    #  east              2
+    #  east              2          2
     #  south             3          3
-    #  west              4          
+    #  west              4          4
     
         
     if TYPE == 'WEISS':
@@ -138,7 +139,7 @@ def define_landform_classes(step, limit, TYPE='SIMPLE'):
             lf_full_set += [x+(100*e) for x in lf_set]
     elif TYPE == 'SIMPLE':
         # TYPE: SIMPLE (1:hilltop, 3:midslope, 4:flat, 6:valley)
-        lf_set = [10,31,33,40,60]
+        lf_set = [10,31,32,33,34,40,60]
         lf_full_set = []
         for e in ele_cnt:
             lf_full_set += [x+(100*e) for x in lf_set]
@@ -307,6 +308,7 @@ def convert_dem_files(cfg, lf_ele_levels):
 
                         classify_aspect(tile)
                         classify_landform(tile, elevation_levels=lf_ele_levels, TYPE=cfg.CLASSIFICATION)            
+                        calculate_asp_slope(tile)
                         
                         # store file in tilestore
                         # get tile center coordinate and name

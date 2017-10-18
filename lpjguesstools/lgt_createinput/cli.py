@@ -28,7 +28,7 @@ click.Context.get_usage = click.Context.get_help
                     default='SIMPLE', show_default=True,
                     help='classification scheme')
 
-@click.option('--cutoff', default=1.0, show_default=True,
+@click.option('--cutoff', default=0.5, show_default=True,
                     help='required area fraction [%]')
 
 @click.option('--dems', metavar='PATH',

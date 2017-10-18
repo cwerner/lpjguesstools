@@ -329,14 +329,14 @@ def classify_aspect(ds, TYPE='SIMPLE'):
     # silence numpy warning in the comaprisons nan in masked_array
     import warnings
     warnings.filterwarnings("ignore",category=RuntimeWarning)
-    if TYPE == 'WEISS':
+    if TYPE in ['WEISS', 'SIMPLE']:
         asp_cl[(aspect >= 315) | (aspect <  45)] = 1    # North
         asp_cl[(aspect >= 45)  & (aspect < 135)] = 2    # East
         asp_cl[(aspect >= 135) & (aspect < 225)] = 3    # South
         asp_cl[(aspect >= 225) & (aspect < 315)] = 4    # West
-    elif TYPE == 'SIMPLE':
-        asp_cl[(aspect >= 270) | (aspect <  90)] = 1    # North
-        asp_cl[(aspect  < 270) & (aspect >= 90)] = 3    # South
+    #elif TYPE == 'SIMPLE':
+    #    asp_cl[(aspect >= 270) | (aspect <  90)] = 1    # North
+    #    asp_cl[(aspect  < 270) & (aspect >= 90)] = 3    # South
     else:
         log.error('Currently only classifiation schemes WEISS, SIMPLE supported.')
 
@@ -349,6 +349,11 @@ def classify_aspect(ds, TYPE='SIMPLE'):
     ds['aspect_class'] = da_asp_cl
     ds['aspect_class'][:] = asp_cl
     ds['aspect_class'].tile.update_encoding(ENCODING_INT)
+    return ds
+
+
+def calculate_asp_slope(ds):
+    ds['asp_slope'] = ds['slope'] * np.abs( np.cos(np.radians(ds['aspect'])) )
     return ds
 
 
