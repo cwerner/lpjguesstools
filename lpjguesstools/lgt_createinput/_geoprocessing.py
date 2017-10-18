@@ -306,6 +306,7 @@ def compute_spatial_dataset(fname_dem, fname_shp=None):
                                     num_threads=2)
 
                                 dem_mask = ds_geo2.read(2).astype(bool)
+                                dem_mask[:,-1] = dem_mask[:,-2]
                                 dem = np.ma.masked_array(ds_geo2.read(1), mask=~dem_mask)
                                 slope = np.ma.masked_array(ds_geo2.read(3), mask=~dem_mask)
                                 aspect = np.ma.masked_array(ds_geo2.read(4), mask=~dem_mask)
@@ -354,6 +355,13 @@ def classify_aspect(ds, TYPE='SIMPLE'):
 
 def calculate_asp_slope(ds):
     ds['asp_slope'] = ds['slope'] * np.abs( np.cos(np.radians(ds['aspect'])) )
+    
+    # special encoding (force output as Int16)
+    ENCODING_INT = dict(ENCODING)
+    ENCODING_INT.update({'dtype': np.int16})
+    ENCODING_INT.update({'scale_factor': 0.1})
+    ds['asp_slope'].tile.update_encoding(ENCODING_INT)
+    
     return ds
 
 
