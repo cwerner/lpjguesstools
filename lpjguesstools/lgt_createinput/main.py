@@ -27,6 +27,7 @@ from collections import OrderedDict
 import datetime
 import glob 
 import logging
+import math
 import numpy as np
 import os
 import pandas as pd
@@ -70,6 +71,7 @@ varSoil = {'TOTC': ('soc', 'Soil Organic Carbon', 'soc', 'percent', 0.1),
 
 varLF = {'lfcnt': ('lfcnt', 'Number of landforms', 'lfcnt', '-', 1.0),
          'slope': ('slope', 'Slope', 'slope', 'deg', 1.0),
+         'aspect': ('aspect', 'Aspect', 'aspect', 'deg', 1.0),         
          'asp_slope': ('asp_slope', 'Aspect-corrected Slope', 'asp_slope', 'deg', 1.0),         
          'fraction': ('fraction', 'Landform Fraction', 'fraction', '1/1', 1.0),
          'elevation': ('elevation', 'Elevation', 'elevation', 'm', 1.0)}
@@ -211,8 +213,22 @@ def get_tile_summary(ds, cutoff=0):
     df['elevation'] = -1
     df['slope'] = -1
     df['asp_slope'] = -1
+    df['aspect'] = -1
 
     a_lf = ds['landform_class'].to_masked_array()
+    
+    # average aspect angles
+    def avg_aspect(a):
+        x = 0
+        y = 0
+        for v in a.ravel():
+            x += math.sin(math.radians(v))
+            y += math.cos(math.radians(v))
+        avg = math.degrees(math.atan2(y, x))
+        if avg < 0:
+            avg += 360
+        return avg 
+    
     
     # calculate the avg. elevation and slope in landforms
     for i, r in df.iterrows():
@@ -220,10 +236,11 @@ def get_tile_summary(ds, cutoff=0):
         lf_slope = ds['slope'].values[ix].mean()
         lf_asp_slope = ds['asp_slope'].values[ix].mean()        
         lf_elevation = ds['elevation'].values[ix].mean()
+        lf_aspect = avg_aspect(ds['aspect'].values[ix])
         df.loc[i, 'slope'] = lf_slope
         df.loc[i, 'asp_slope'] = lf_asp_slope
         df.loc[i, 'elevation'] = lf_elevation
-    
+        df.loc[i, 'aspect']    = lf_aspect
     return df
 
 
@@ -357,8 +374,9 @@ def compute_statistics(cfg):
     frac_lf = create_stats_table(df, 'frac_scaled')
     elev_lf = create_stats_table(df, 'elevation')
     slope_lf = create_stats_table(df, 'slope')
-    asp_slope_lf = create_stats_table(df, 'asp_slope')    
-    return (frac_lf, elev_lf, slope_lf, asp_slope_lf)
+    asp_slope_lf = create_stats_table(df, 'asp_slope')
+    aspect_lf = create_stats_table(df, 'aspect')    
+    return (frac_lf, elev_lf, slope_lf, asp_slope_lf, aspect_lf)
 
 
 def is_3d(ds, v):
@@ -481,7 +499,7 @@ def build_site_netcdf(soilref, elevref, extent=None):
 
 
 @time_dec
-def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf, cfg, elevation_levels, refnc=None):
+def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf, aspect_lf, cfg, elevation_levels, refnc=None):
     """Build landform netcdf based on refnc dims and datatables."""
     
     dsout = xr.Dataset()
@@ -497,6 +515,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf,
     da_slope = xr.DataArray(_blank.copy(), name='slope', coords=COORDS)
     da_asp_slope = xr.DataArray(_blank.copy(), name='asp_slope', coords=COORDS)
     da_elev = xr.DataArray(_blank.copy(), name='elevation', coords=COORDS)
+    da_aspect = xr.DataArray(_blank.copy(), name='aspect', coords=COORDS)
     
     # check that landform coordinates are in refnc
     df_extent = [frac_lf.lon.min(), frac_lf.lat.min(), frac_lf.lon.max(), frac_lf.lat.max()]
@@ -509,18 +528,22 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf,
         slope_lf = spatialclip_df(slope_lf, refnc.geo.extent)
         asp_slope_lf = spatialclip_df(asp_slope_lf, refnc.geo.extent)
         elev_lf = spatialclip_df(elev_lf, refnc.geo.extent)
+        aspect_lf = spatialclip_df(aspect_lf, refnc.geo.extent)
 
     # dump files
     frac_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_frac.csv'), index=False)
     slope_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_slope.csv'), index=False)
     asp_slope_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_asp_slope.csv'), index=False)
-    elev_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_elev.csv'), index=False)    
+    elev_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_elev.csv'), index=False)
+    aspect_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_aspect.csv'), index=False)    
+ 
     # assign dataframe data to arrays
     da_lfcnt = assign_to_dataarray(da_lfcnt, frac_lf, lf_full_set, refdata=True)
     da_frac = assign_to_dataarray(da_frac, frac_lf, lf_full_set)
     da_slope = assign_to_dataarray(da_slope, slope_lf, lf_full_set)
     da_asp_slope = assign_to_dataarray(da_asp_slope, asp_slope_lf, lf_full_set)
     da_elev = assign_to_dataarray(da_elev, elev_lf, lf_full_set)
+    da_aspect = assign_to_dataarray(da_aspect, aspect_lf, lf_full_set)
 
     # store arrays in dataset
     dsout[da_lfcnt.name] = da_lfcnt
@@ -528,6 +551,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf,
     dsout[da_slope.name] = da_slope
     dsout[da_asp_slope.name] = da_asp_slope
     dsout[da_elev.name] = da_elev
+    dsout[da_aspect.name] = da_aspect
 
     for v in dsout.data_vars:
         vattr = {}
@@ -696,12 +720,12 @@ def main(cfg):
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
 
     # compute stats from tiles
-    df_frac, df_elev, df_slope, df_asp_slope = compute_statistics(cfg)
+    df_frac, df_elev, df_slope, df_asp_slope, df_aspect = compute_statistics(cfg)
     
     # build netcdfs
     log.info("Building 2D netCDF files")
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
-    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, df_asp_slope, cfg, 
+    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, df_asp_slope, df_aspect, cfg, 
                                        lf_ele_levels, refnc=sitenc)
     
     # clip to joined mask
