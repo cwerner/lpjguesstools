@@ -224,7 +224,7 @@ def get_tile_summary(ds, cutoff=0):
         for v in a.ravel():
             x += math.sin(math.radians(v))
             y += math.cos(math.radians(v))
-        avg = math.degrees(math.atan2(y, x))
+        avg = math.degrees(math.atan2(x, y))
         if avg < 0:
             avg += 360
         return avg 
