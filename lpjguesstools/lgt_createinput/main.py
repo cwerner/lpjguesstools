@@ -270,6 +270,8 @@ def create_stats_table(df, var):
     df_ = df[var].unstack(level=-1, fill_value=NODATA)
     # rename columns and split coord tuple col to lon and lat col
     df_.columns = ['lf' + str(col) for col in df_.columns]
+    if 'lf0' in df_.columns:
+        del df_['lf0']
     df_ = df_.reset_index()
     df_[['lon', 'lat', 'lf_cnt']] = df_['coord'].apply(pd.Series)
     df_['lf_cnt'] = df_['lf_cnt'].astype(int)
