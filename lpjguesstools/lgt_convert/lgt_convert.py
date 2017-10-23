@@ -14,6 +14,7 @@ import pandas as pd
 import xarray as xr
 import os
 import sys
+import dask.dataframe as dd
 
 from .cli import cli
 from .extra import set_config, get_config, parse_config #, RefDataBuilder
@@ -29,7 +30,7 @@ defaultAttrsDA = {'_FillValue': NODATA, 'missing_value': NODATA}
 # standard columns
 basecols = ['id', 'year', 'julianday']
 
-YEARS = range(1950, 1990)
+YEARS = range(1960, 1990)
 
 # functions
 
@@ -137,7 +138,7 @@ class IndexMapper():
         return (jx, ix)
 
 
-def get_annual_data(var, landforms, args, inpath='', 
+def get_annual_data(var, landforms, df_frac, args, inpath='', 
                     years=[], use_month_dim=False, subset='',
                     sel_var=None):
     """ Parse variable and return DataArrays (data, total_data) """
@@ -159,7 +160,10 @@ def get_annual_data(var, landforms, args, inpath='',
     except:
         df = pd.read_csv(os.path.join(inpath, "%s.out.gz" % var),
             delim_whitespace=True)
-            
+    
+    
+    # convert to dask
+        
     log.debug("  Total number of data rows in file (raw data): %d" % len(df))
     
     # limit df to years
@@ -169,12 +173,13 @@ def get_annual_data(var, landforms, args, inpath='',
     if len(df) == 0:
         log.critical("Requested years not in data.")
         exit(1)
-
+    
     log.debug("  Total number of data rows in file (year sel): %d" % len(df))
 
     # determine z dimension
-    nyears = max(df.Year) - min(df.Year)
-    outyears = range(min(df.Year), max(df.Year)+1)
+    nyears = df.Year.max() - df.Year.min()
+    print nyears
+    outyears = range(df.Year.min(), df.Year.max()+1)
 
     def is_monthly(df):
         """Check if df is a montlhy dataframe."""
@@ -193,21 +198,51 @@ def get_annual_data(var, landforms, args, inpath='',
     # TODO: cut testing runtime, remove this later
     # df = df.head(150000)
 
+
     # calc mean over patches
     if 'Patch' in df.columns.values:
         groupcols = ['Lon','Lat','Year','Stand']
         df = df.groupby(groupcols).mean().reset_index()
+        del df['Patch']
+        print df.head()
+
+    if has_stand(df):
+        # fix index before merge
+        df.set_index(['Lon','Lat','Stand'], inplace=True)# set index for join
+        df = df.merge(df_frac, left_index=True, right_index=True)
+        df.reset_index(inplace=True)
     
-    # if average is requested, do average over the year column, too
+    # calc
     if args.avg:
+        log.info("Averaging years over selected timespan.")
         if 'Stand' in df.columns.values:
-            groupcols = ['Lon','Lat','Year','Stand']
+            groupcols = ['Lon','Lat','Stand']
         else:
-            groupcols = ['Lon','Lat','Year']
+            groupcols = ['Lon','Lat']
         df = df.groupby(groupcols).mean().reset_index()
+        del df['Year']
+
+    log.debug("  Total number of data rows in file (annual avg):    %d" % len(df))
+
+    data_cols = [c for c in df.columns.values if c not in ['Lat', 'Lon', 'Year', 'Stand']]
+
+    wtavg = lambda x: np.average(x.ix[:, data_cols], weights = x.fraction, axis=0)
+
+    # do the stand/ lf_id avg
+    if 'Stand' in df.columns.values:
+        # if average is requested, do (weighted) average over the year column, too    
+        #df = df.groupby(groupcols).apply(wtavg).reset_index()
+
+        wavg = lambda x: pd.Series([sum(x[v]*x.fraction)/sum(x.fraction) for v in data_cols])
+        
+        df = dd.from_pandas(df, npartitions=100)
+        
+        df = df.groupby(groupcols).apply(wavg).compute()
+        df.reset_index(inplace=True)
 
     log.debug("  Total number of data rows in file (final):    %d" % len(df))
 
+    
     # determine start column position
     def get_data_column_index(df):
         """Determine the start and end position of data columns."""
@@ -219,8 +254,10 @@ def get_annual_data(var, landforms, args, inpath='',
             cid_start = col_names.index('Patch') + 1
         elif 'Stand' in col_names:
             cid_start = col_names.index('Stand') + 1
-        else:
+        elif 'Year' in col_names:
             cid_start = col_names.index('Year') + 1
+        else:
+            cid_start = col_names.index('Lat') + 1
 
         # determine end position of data
         cid_end   = len(col_names)
@@ -308,12 +345,12 @@ def get_annual_data(var, landforms, args, inpath='',
     #       maybe wrap into a class (?)
 
     # processing for stand/ patch output
-    if has_stand(df) and 'lf_ids' in landforms.data_vars:
+    if has_stand(df) and 'lf_id' in landforms.data_vars:
 
         lookup = {}
         
         reffile, lf_fraction_var = args.refinfo
-        lfids = landforms['lf_ids'].values
+        lfids = landforms['lf_id'].values
         # add stand weight column (using lanform fraction)
         df['lffrac'] = -1.0
 
@@ -408,30 +445,58 @@ def main():
     def use_cli_refdata():
         return args.refinfo is not None
 
+    def get_fractions(ds_lf, refvar):
+        """Parse landform fractions from reference file"""
+        
+        if refvar not in ds_lf.data_vars:
+            log.critical("Var <%s> not in %s" % ('fraction', reffile))
+            exit(1)
+        else:
+            log.info("Get fractional landform cover. Reading var %s from %s..." % (refvar, reffile))
+            da = ds_lf[refvar]
+            # iterate over lf_ids
+            dfs = []
+            for lf_id in ds_lf.lf_id:
+                df = da.sel(lf_id=lf_id).to_pandas().stack().reset_index()
+                df.columns = ['Lat','Lon','fraction']
+                if len(df) > 0:
+                    df['Stand'] = lf_id.values
+                    dfs.append(df)
+
+            df = pd.concat(dfs)
+            df.set_index(['Lon', 'Lat', 'Stand'], inplace=True)
+            print df.head()
+        return df
+
     if use_cli_refdata():
         rdata = args.refinfo
         reffile, refvar = rdata
 
         if os.path.isfile(reffile):
-            landforms = xr.open_dataset(reffile).load()
-            if refvar is not None:
-                if refvar not in refnc.data_vars:
-                    log.critical("Var <%s> not in %s" % (refvar, reffile))
-                    exit(1)
+            with xr.open_dataset(reffile).load() as ds_lf:
+                if refvar is not None:
+                    df_frac = get_fractions(ds_lf, refvar)
+                else:
+                    refvar = 'fraction'
+                    df_frac = get_fractions(ds_lf, refvar)
     else:
-        # get domain info from conf file
-        # build a dummy array with the specified coords but without
-        # landform info
-        if 'refdata' in cfg.keys():
-            lats, lons = _read_refdata_info(cfg)
-            dummy = xr.DataArray(np.ones((len(lats), len(lons))), 
-                                   coords=[('lat', lats ),('lon', lons)])
-            landforms = xr.Dataset()
-            landforms['dummy'] = dummy
-        else:
-            log.critical("No refdata section in conf file found nor -r flag specified.\n")
-            log.critical(parser.print_help())
-            exit(1)
+        log.error("We currently need a refdata file!")
+        exit(-1)
+                        
+    #else:
+    #    # get domain info from conf file
+    #    # build a dummy array with the specified coords but without
+    #    # landform info
+    #    if 'refdata' in cfg.keys():
+    #        lats, lons = _read_refdata_info(cfg)
+    #        dummy = xr.DataArray(np.ones((len(lats), len(lons))), 
+    #                               coords=[('lat', lats ),('lon', lons)])
+    #        landforms = xr.Dataset()
+    #        landforms['dummy'] = dummy
+    #    else:
+    #        log.critical("No refdata section in conf file found nor -r flag specified.\n")
+    #        log.critical(parser.print_help())
+    #        exit(1)
             
     # derive data from cli or config file
     global_info = _read_global_info(cfg)
@@ -485,7 +550,7 @@ def main():
             if len(named_vars.keys()) > 0:
                 sel_vars = named_vars.keys()
                 for var in sel_vars:
-                    da1, _ = get_annual_data(file, landforms, args,
+                    da1, _ = get_annual_data(file, ds_lf, df_frac, args,
                                             inpath=inpath,
                                             use_month_dim=use_month_dim,
                                             subset=sset,
@@ -493,7 +558,7 @@ def main():
                     # rename variable
                     ds[named_vars[var] + suffix] = da1
             else:
-                da1, da2 = get_annual_data(file, landforms, args,
+                da1, da2 = get_annual_data(file, ds_lf, df_frac, args,
                                         inpath=inpath,
                                         use_month_dim=use_month_dim,
                                         subset=sset)
