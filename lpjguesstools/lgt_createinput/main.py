@@ -719,11 +719,18 @@ def main(cfg):
     # process dem files to tiles (if not already processed)
     convert_dem_files(cfg, lf_ele_levels)
 
-    sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
+    #sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
 
     # compute stats from tiles
+
     df_frac, df_elev, df_slope, df_asp_slope, df_aspect = compute_statistics(cfg)
-    
+    #print 'reading files'
+    #df_frac = pd.read_csv('lfdata.cutoff_1.0p/df_frac.csv')
+    #df_asp_slope = pd.read_csv('lfdata.cutoff_1.0p/df_asp_slope.csv')
+    #df_slope = pd.read_csv('lfdata.cutoff_1.0p/df_slope.csv')
+    #df_aspect = pd.read_csv('lfdata.cutoff_1.0p/df_aspect.csv')
+    #df_elev = pd.read_csv('lfdata.cutoff_1.0p/df_elev.csv')
+
     # build netcdfs
     log.info("Building 2D netCDF files")
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
@@ -731,10 +738,17 @@ def main(cfg):
                                        lf_ele_levels, refnc=sitenc)
     
     # clip to joined mask
-    elev_mask = np.where(sitenc['elevation'].values == NODATA, 0, 1)
-    landform_mask = np.where(landformnc['lfcnt'].values == NODATA, 0, 1)
-    valid_mask = elev_mask * landform_mask
-    
+    #elev_mask = np.where(sitenc['elevation'].values == NODATA, 0, 1)
+    #landform_mask = np.where(landformnc['lfcnt'].values == NODATA, 0, 1)
+    #valid_mask = elev_mask * landform_mask
+
+
+    elev_mask = ~np.ma.getmaskarray(sitenc['elevation'].to_masked_array())
+    sand_mask = ~np.ma.getmaskarray(sitenc['sand'].to_masked_array())
+    land_mask = ~np.ma.getmaskarray(landformnc['lfcnt'].to_masked_array())
+    valid_mask = elev_mask * sand_mask * land_mask
+
+ 
     sitenc = mask_dataset(sitenc, valid_mask)
     landformnc = mask_dataset(landformnc, valid_mask)
 
@@ -747,11 +761,15 @@ def main(cfg):
     # convert to compressed netcdf format
     log.info("Building compressed format netCDF files")
     ids_2d, comp_sitenc = build_compressed(sitenc)
-    _, comp_landformnc = build_compressed(landformnc)
+    ids_2db, comp_landformnc = build_compressed(landformnc)
     
     # write netcdf files
     ids_2d.to_netcdf(os.path.join(cfg.OUTDIR, "land_ids_2d.nc"), 
                      format='NETCDF4_CLASSIC')
+
+    ids_2db.to_netcdf(os.path.join(cfg.OUTDIR, "land_ids_2db.nc"),
+                     format='NETCDF4_CLASSIC')
+
     comp_landformnc.to_netcdf(os.path.join(cfg.OUTDIR, "landform_data.nc"), 
                               format='NETCDF4_CLASSIC')
     comp_sitenc.to_netcdf(os.path.join(cfg.OUTDIR, "site_data.nc"), 
