@@ -27,12 +27,44 @@ log = logging.getLogger(__name__)
 NODATA = -9999
 defaultAttrsDA = {'_FillValue': NODATA, 'missing_value': NODATA}
 
-# standard columns
-basecols = ['id', 'year', 'julianday']
-
-YEARS = range(1960, 1990)
-
 # functions
+
+def is_monthly(df):
+    """Check if df is a monthly dataframe."""
+    col_names = df.columns.values
+    return (('Jan' in col_names) and ('Dec' in col_names))
+
+def is_pft(df):
+    """Check if df is a per-pft dataframe."""
+    col_names = df.columns.values
+    return (('Total' in col_names) and ('C3G' in col_names))
+
+def has_stand(df):
+    """Check if df is a subpixel dataframe."""
+    return 'Stand' in df.columns.values
+
+def get_data_column_index(df):
+    """Determine the start and end position of data columns."""
+
+    col_names = df.columns.values.tolist()
+
+    # determine start position of data
+    if 'Patch' in col_names:
+        cid_start = col_names.index('Patch') + 1
+    elif 'Stand' in col_names:
+        cid_start = col_names.index('Stand') + 1
+    elif 'Year' in col_names:
+        cid_start = col_names.index('Year') + 1
+    else:
+        cid_start = col_names.index('Lat') + 1
+
+    # determine end position of data
+    cid_end   = len(col_names)
+    if is_monthly(df):
+        cid_end   = col_names.index('Dec')
+    if is_pft(df):
+        cid_end = col_names.index('Total') - 1
+    return (cid_start, cid_end)
 
 def _read_global_info(cfg):
     """Read general project info from cfg file."""
@@ -68,32 +100,6 @@ def update_attrs(obj, *args, **kwargs):
     """Update netcdf attributes."""
     obj.attrs.update(*args, **kwargs)
     return obj
-
-#ds.pipe(update_attrs, foo='bar')
-
-
-def enum(*sequential, **named):
-    """ Python2 enum type """
-    enums = dict(zip(sequential, range(len(sequential))), **named)
-    return type('Enum', (), enums)
-
-File = enum('UNKNOWN', 'PFT', 'MONTHLY', 'OTHER')
-
-
-class LPJFile():
-    """ Holds information about the LPJ file parsed """
-    def __init__(self, var, inpath):
-        self._filepath = os.path.join(inpath, "%s.out" % var)
-        self._type = File.UNKNOWN       # type of LPJ output file
-        self._years = []                # year range of data in file
-        self._load_data(var, inpath)
-        self.name = os.path.basename(self._filepath)
-
-    def _load_data(self, var, inpath):
-        pass
-
-    def _determine_type():
-        pass
 
 
 class IndexMapper():
@@ -152,6 +158,7 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
     lats = landforms.coords['lat']
     lons = landforms.coords['lon']
 
+    # map lat, lon to indices
     mapper = IndexMapper(lats, lons)
 
     var_str = var
@@ -166,7 +173,7 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
         df = pd.read_csv(os.path.join(inpath, "%s.out.gz" % var),
             delim_whitespace=True)
     
-    
+    # special transformation for FireRT variable
     if sel_var == 'FireRT':
         log.debug("  Inverting fire return time")
         df['FireRT'] = 1.0 / df['FireRT']
@@ -191,20 +198,6 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
     # determine z dimension
     nyears = df.Year.max() - df.Year.min()
     outyears = range(df.Year.min(), df.Year.max()+1)
-
-    def is_monthly(df):
-        """Check if df is a monthly dataframe."""
-        col_names = df.columns.values
-        return (('Jan' in col_names) and ('Dec' in col_names))
-
-    def is_pft(df):
-        """Check if df is a per-pft dataframe."""
-        col_names = df.columns.values
-        return (('Total' in col_names) and ('C3G' in col_names))
-
-    def has_stand(df):
-        """Check if df is a subpixel dataframe."""
-        return 'Stand' in df.columns.values
 
     # calc mean over patches
     if 'Patch' in df.columns.values:
@@ -237,13 +230,13 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
 
         # place this into yearly list with tuple index value: None 
         df_yrs = [(None, df)]
-    ##else:
-    ##    # split by year for performance considerations
-    ##    df_yrs = []
-    ##    for cnt, yr in enumerate(years):
-    ##        yr_mask = df.Year == yr
-    ##        df_yr = df[yr_mask]        
-    ##        df_yrs.append((yr, df_yr))
+    else:
+        # split by year for performance considerations
+        df_yrs = []
+        for cnt, yr in enumerate(years):
+            yr_mask = df.Year == yr
+            df_yr = df[yr_mask]        
+            df_yrs.append((yr, df_yr))
 
     log.debug("  Total number of data rows in file (annual avg): %d" % len(df))
 
@@ -283,32 +276,6 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
         df['FireRT'] = 1.0 / df['FireRT']
 
     log.debug("  Total number of data rows in file (final):    %d" % len(df))
-
-    
-    # determine start column position
-    def get_data_column_index(df):
-        """Determine the start and end position of data columns."""
-
-        col_names = df.columns.values.tolist()
-
-        # determine start position of data
-        if 'Patch' in col_names:
-            cid_start = col_names.index('Patch') + 1
-        elif 'Stand' in col_names:
-            cid_start = col_names.index('Stand') + 1
-        elif 'Year' in col_names:
-            cid_start = col_names.index('Year') + 1
-        else:
-            cid_start = col_names.index('Lat') + 1
-
-        # determine end position of data
-        cid_end   = len(col_names)
-        if is_monthly(df):
-            cid_end   = col_names.index('Dec')
-        if is_pft(df):
-            cid_end = col_names.index('Total') - 1
-
-        return (cid_start, cid_end)
 
     cid_start, cid_end = get_data_column_index(df)
     if is_pft(df):
@@ -640,6 +607,7 @@ def main():
     ds['lfcnt'] = da_lfcnt
     d_vars = ['lfcnt', 'fraction'] + d_vars
      
-    ds[c_vars + d_vars].squeeze(drop=True).to_netcdf(outname, format='NETCDF4_CLASSIC', unlimited_dims='time')
+    ds[c_vars + d_vars].squeeze(drop=True).to_netcdf(outname, 
+        format='NETCDF4_CLASSIC', unlimited_dims='time')
 
     log.debug("Done.")
