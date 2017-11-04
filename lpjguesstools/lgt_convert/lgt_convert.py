@@ -140,8 +140,13 @@ class IndexMapper():
 
 def get_annual_data(var, landforms, df_frac, args, inpath='', 
                     years=[], use_last_nyears=None, use_month_dim=False, subset='',
-                    sel_var=None):
+                    sel_var=None, lf_ids=None):
     """ Parse variable and return DataArrays (data, total_data) """
+
+    if lf_ids is None:
+        KEEP_LF_DIM = False
+    else:
+        KEEP_LF_DIM = True
 
     # derive dimensions and landform info from landforms file
     lats = landforms.coords['lat']
@@ -188,7 +193,7 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
     outyears = range(df.Year.min(), df.Year.max()+1)
 
     def is_monthly(df):
-        """Check if df is a montlhy dataframe."""
+        """Check if df is a monthly dataframe."""
         col_names = df.columns.values
         return (('Jan' in col_names) and ('Dec' in col_names))
 
@@ -201,40 +206,44 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
         """Check if df is a subpixel dataframe."""
         return 'Stand' in df.columns.values
 
-    # TODO: cut testing runtime, remove this later
-    # df = df.head(150000)
-
-
     # calc mean over patches
     if 'Patch' in df.columns.values:
         groupcols = ['Lon','Lat','Year','Stand']
         df = df.groupby(groupcols).mean().reset_index()
         del df['Patch']
 
+    # return to proper column sortin Lon,Lat,Year,(Stand)
     if has_stand(df):
         # fix index before merge
         df.set_index(['Lon','Lat','Stand'], inplace=True)# set index for join
         df = df.merge(df_frac, left_index=True, right_index=True)
     
     df.reset_index(inplace=True)
-    # calc
+    if has_stand(df):
+        df.set_index(['Lon','Lat','Year','Stand'], inplace=True)
+        df.reset_index(inplace=True)
+        
     if args.avg:
-        log.info("Averaging years over selected timespan.")
+        # average years
+        log.debug("  Averaging years over selected timespan.")
         if 'Stand' in df.columns.values:
+            #if KEEP_LF_DIM == False:
             groupcols = ['Lon','Lat','Stand']
+            df = df.groupby(groupcols).mean().reset_index()
         else:
             groupcols = ['Lon','Lat']
-        df = df.groupby(groupcols).mean().reset_index()
+            df = df.groupby(groupcols).mean().reset_index()
+        del df['Year']
 
         # place this into yearly list with tuple index value: None 
         df_yrs = [(None, df)]
-    else:
-        # split by year for performance considerations
-        df_yrs = []
-        for cnt, yr in enumerate(years):
-            yr_mask = df.Year == yr
-            df_yr = df[yr_mask]        
-            df_yrs.append((yr, df_yr))
+    ##else:
+    ##    # split by year for performance considerations
+    ##    df_yrs = []
+    ##    for cnt, yr in enumerate(years):
+    ##        yr_mask = df.Year == yr
+    ##        df_yr = df[yr_mask]        
+    ##        df_yrs.append((yr, df_yr))
 
     log.debug("  Total number of data rows in file (annual avg): %d" % len(df))
 
@@ -247,7 +256,7 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
     def weighed_average(grp):
         return grp._get_numeric_data().multiply(grp['fraction'], axis=0).sum()/grp['fraction'].sum()
 
-    if 'Stand' in df.columns.values:
+    if 'Stand' in df.columns.values and KEEP_LF_DIM == False:
         # if average is requested, do (weighted) average over the year column, too    
 
         # loop over years
@@ -306,24 +315,134 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
         PFTS = df.columns.values.tolist()[cid_start:cid_end+1]
     else:
         PFTS = []
-    
-    # setup output array
-    #ylen, xlen = landforms.values.shape
-    xcoords = lons
-    ycoords = lats
-    lcoords = None  # pft axis
-    mcoords = None  # extra month axis
 
-    # time axis
-    zcoords = xr.DataArray( range(len(outyears)), name='time')
-    zcoords.attrs['units'] = 'yearly'
+    class DataStore(object):
+        def __init__(self, years, **kwargs):
+            """ Initialice with list of requested dims """
+            
+            if ('lat' not in kwargs.keys()) or ('lon' not in kwargs.keys()):
+                log.error("We need 'lat' and 'lon' to constuct array.")
+                exit()
+                 
+            # dimensions order
+            full_set_dims = ['time', 'time_m', 'month', 'lf_id', 'pft', 'lat', 'lon']
+            
+            self.dim_names = []
+            self.dim_sizes = []
+            self.data = None
+            self.data_total = None
+            self.years = years
+            self.lfids = []
+            self.pfts = []
+            
+            if 'lf_id' in kwargs.keys():
+                self.lfids = kwargs['lf_id'].values.tolist()
+            
+            if 'pft' in kwargs.keys():
+                self.pfts = kwargs['pft'].values.tolist()
+                
+            # build coords
+            da_coords = []
+            da_coords2 = []
+            for d in full_set_dims:
+                if d in kwargs.keys():
+                    value = kwargs[d]
+                    da_dim = (d, value)
+                    da_coords.append(da_dim)
+                    if d != 'pft':
+                        da_coords2.append(da_dim)
+                    self.dim_names.append(d)
+                    self.dim_sizes.append(len(value))    
+
+            self.data = xr.DataArray(np.ones( self.dim_sizes ) * NODATA,
+                                     coords=da_coords)
+
+            self.data.attrs['units'] = '-'
+            self.data.attrs['missing_value'] = NODATA
+            self.data.attrs['_FillValue'] = NODATA
+
+            if 'pft' in kwargs.keys():
+                p = self.dim_names.index('pft')
+                dim_names = self.dim_names[:]
+                dim_sizes = self.dim_sizes[:]
+                dim_names.pop(p)
+                dim_sizes.pop(p)
+                self.data_total = xr.DataArray(np.ones( dim_sizes ) * NODATA,
+                                               coords=da_coords2)
+
+                self.data_total.attrs['units'] = '-'
+                self.data_total.attrs['missing_value'] = NODATA
+                self.data_total.attrs['_FillValue'] = NODATA
+
+        def add(self, year, jx, ix, values, lf_id=None):
+            if args.avg:
+                year_p = 0
+                self.years = [0]
+            else:
+                year_p = self.years.index(int(year))
+
+            if 'pft' in self.dim_names:
+                if 'lf_id' in self.dim_names:
+                    lfid_p = self.lfids.index(lf_id)
+                    self.data[year_p, lfid_p, :, jx, ix] = values
+                    self.data_total[year_p, lfid_p, jx, ix] = sum(values)                
+                else:
+                    self.data[year_p, :, jx, ix] = values
+                    self.data_total[year_p, jx, ix] = sum(values)
+            elif 'month' in self.dim_names or 'time_m' in self.dim_names:
+                if 'month' in self.dim_names:
+                    #print self.dim_names
+                    #print values
+                    add_p = self.dim_names.index('month')
+                    if 'lf_id' in self.dim_names:
+                        lfid_p = self.lfids.index(lf_id) 
+                        self.data[year_p, :, lfid_p, jx, ix] = values
+                elif 'time_m' in self.dim_names:
+                    add_p = self.dim_names.index('time_m')
+                    if 'lf_id' in self.dim_names:
+                        lfid_p = self.lfids.index(lf_id) 
+                        self.data[year_p:year_p+12, lfid_p, jx, ix] = values
+                    else:
+                        self.data[year_p:year_p+12, jx, ix] = values
+            else:
+                # individual variable: take index 0 (FireRT)
+                if 'lf_id' in self.dim_names:
+                    lfid_p = self.lfids.index(lf_id)                     
+                    self.data[year_p, lfid_p, jx, ix] = values[0]
+                else:
+                    self.data[year_p, jx, ix] = values[0]
+
+        def fetch(self):
+            return self.data, self.data_total
+
+    # setup output array
+    mcoords = None  # extra month axis
+    lfcoords = None # extra lf_ids axis
+
+    # build the coordinate dictionary
+    coords = dict(lat=lats, lon=lons)
+
+    if args.avg:
+        len_outyears = 1
+    else:
+        len_outyears = len(outyears)
 
     # second time axis (monthly substeps)
     zcoords2 = None
 
+    if KEEP_LF_DIM:
+        # lf_id axis
+        lfcoords = xr.DataArray( lf_ids, name='lf_id') 
+        lfcoords.attrs['units'] = '-'
+        coords['lf_id'] = lfcoords
+
+    # add time axis
+    zcoords = xr.DataArray( range(len_outyears), name='time')
+    zcoords.attrs['units'] = 'yearly'
 
     if is_pft(df):
-        lcoords = xr.DataArray( PFTS, name='PFT')
+        log.debug("  We have a pft variable.")
+        coords['pft'] = xr.DataArray( PFTS, name='pft')
 
     # create 1 or 2 time dims (yr, yr+month)
     if use_month_dim:
@@ -331,85 +450,40 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
         mcoords.attrs['units'] = 'month'
 
     if is_monthly(df):
+        log.debug("  We have a monthly variable.")
         if not args.use_month_dim:
-            zcoords2 = xr.DataArray( np.linspace(0, len(outyears),
-                                                 num=len(outyears)*12,
+            zcoords2 = xr.DataArray( np.linspace(0, len_outyears,
+                                                 num=len_outyears*12,
                                                  endpoint=False), name='time')
-
-    if is_pft(df):
-        # pft var
-        DATA = np.ones( (len(zcoords), len(lcoords), len(ycoords), len(xcoords) ) ) * NODATA
-        da_coords = [('time', zcoords), ('pft', lcoords), ('lat', ycoords), ('lon', xcoords)]
-        data = xr.DataArray(DATA, name=var_str, coords=da_coords)
-
-        DATA2 = np.ones( (len(zcoords), len(ycoords), len(xcoords) ) ) * NODATA
-        da_coords2 = [('time', zcoords), ('lat', ycoords), ('lon', xcoords)]
-        data2 = xr.DataArray(DATA2, name=var_str, coords=da_coords2)
-    else:
-        # monthly var ?
-        if is_monthly(df):
-            if args.use_month_dim:
-                DATA = np.ones( (len(zcoords), len(mcoords),
-                                 len(ycoords), len(xcoords) ) ) * NODATA
-                da_coords = [('time', zcoords), ('month', mcoords),
-                             ('lat', ycoords), ('lon', xcoords)]
-                data = xr.DataArray(DATA, name=var_str, coords=da_coords)
-            else:
-                DATA = np.ones( (len(zcoords2), len(ycoords), len(xcoords) ) ) * NODATA
-                da_coords = [('time_m', zcoords2), ('lat', ycoords), ('lon', xcoords)]
-                data = xr.DataArray(DATA, name=var_str, coords=da_coords)
-
+            
+            # another time dim
+            coords['time_m'] = zcoords2
         else:
-            # do we have a file with individual var columns and a selection
-            # was requested?
-            if sel_var is not None:
-                DATA = np.ones( (len(zcoords), len(ycoords), len(xcoords) ) ) * NODATA
-                da_coords = [('time', zcoords), ('lat', ycoords), ('lon', xcoords)]                
-                data = xr.DataArray(DATA, name=var_str, coords=da_coords)
+            coords['month'] = mcoords
+            coords['time'] = zcoords
+    else:
+        coords['time'] = zcoords
 
-        data2 = None
-
-    # add variable attributes
-    data.attrs['units'] = '-'
-    data.attrs['missing_value'] = NODATA
-    data.attrs['_FillValue'] = NODATA
-    # optional (second) DataArray for Total (PFT) data
+    # build the datastore
+    dstore = DataStore( outyears, **coords )
 
     for _, row in df.iterrows():
+        # map lat lon position to index
         jx, ix = mapper(row.Lat, row.Lon)
         rdata = row[cid_start: cid_end+1]
-        if is_monthly(df):
-            if args.use_month_dim:
-                zpos = outyears.index(row['Year'])
-                data[zpos, :, jx, ix] = rdata
-            else:
-                zpos = outyears.index(row['Year'])*12
-                data[zpos:zpos+12, jx, ix] = rdata
-        elif is_pft(df):
-            zpos = outyears.index(row['Year'])
-            data[zpos,:,jx,ix] = rdata
-            data2[zpos,jx,ix] = row['Total']
-        elif sel_var in rdata.index:
-            zpos = outyears.index(row['Year'])
-            data[zpos,jx,ix] = rdata[sel_var]
+        
+        if args.avg:
+            _year = 0
         else:
-            zpos = outyears.index(row['Year'])
-            if len(rdata) == 1:
-                data[zpos,jx,ix] = rdata
-            else:
-                log.critical("Mixed output file not handled yet:")
-                log.critical("  This should create a single DataArray")
-                log.critical("  for each column (with filename prefix")
-                log.critical(var)
-                exit(1)
+            _year = row.Year
+        if 'Stand' in row.index:
+            dstore.add(_year, jx, ix, rdata, lf_id=row.Stand)
+        else:
+            dstore.add(_year, jx, ix, rdata)    
 
-    # add attributes for total variable
-    if type(data2) == xr.DataArray:
-        data2.attrs['units'] = '-'
-        data2.attrs['missing_value'] = NODATA
-        data2.attrs['_FillValue'] = NODATA
+    data, data2 = dstore.fetch()
 
-    return data, data2
+    return data, data
 
 
 def main():
@@ -464,25 +538,13 @@ def main():
                 else:
                     refvar = 'fraction'
                     df_frac = get_fractions(ds_lf, refvar)
+                lf_ids = ds_lf.lf_id.values
+                da_frac = ds_lf['fraction']
+                da_lfcnt = ds_lf['lfcnt']
     else:
         log.error("We currently need a refdata file!")
         exit(-1)
                         
-    #else:
-    #    # get domain info from conf file
-    #    # build a dummy array with the specified coords but without
-    #    # landform info
-    #    if 'refdata' in cfg.keys():
-    #        lats, lons = _read_refdata_info(cfg)
-    #        dummy = xr.DataArray(np.ones((len(lats), len(lons))), 
-    #                               coords=[('lat', lats ),('lon', lons)])
-    #        landforms = xr.Dataset()
-    #        landforms['dummy'] = dummy
-    #    else:
-    #        log.critical("No refdata section in conf file found nor -r flag specified.\n")
-    #        log.critical(parser.print_help())
-    #        exit(1)
-            
     # derive data from cli or config file
     global_info = _read_global_info(cfg)
 
@@ -547,7 +609,8 @@ def main():
                                             use_month_dim=use_month_dim,
                                             use_last_nyears=uselast,
                                             subset=sset,
-                                            sel_var=var)
+                                            sel_var=var,
+                                            lf_ids=list(lf_ids))
                     # rename variable
                     ds[named_vars[var] + suffix] = da1
             else:
@@ -556,7 +619,8 @@ def main():
                                         years=args.years,
                                         use_month_dim=use_month_dim,
                                         use_last_nyears=uselast,
-                                        subset=sset)
+                                        subset=sset,
+                                        lf_ids=list(lf_ids))
             
                 ds[file + suffix] = da1
                 # if we have a second (total) dataarray
@@ -571,6 +635,11 @@ def main():
     # order variables (coords first, then by name)
     d_vars = [x for x in sorted([x for x in ds.data_vars]) if x not in c_vars]
 
-    ds[c_vars + d_vars].to_netcdf(outname, format='NETCDF4_CLASSIC', unlimited_dims='time')
+    # fraction variable
+    ds['fraction'] = da_frac
+    ds['lfcnt'] = da_lfcnt
+    d_vars = ['lfcnt', 'fraction'] + d_vars
+     
+    ds[c_vars + d_vars].squeeze(drop=True).to_netcdf(outname, format='NETCDF4_CLASSIC', unlimited_dims='time')
 
     log.debug("Done.")
