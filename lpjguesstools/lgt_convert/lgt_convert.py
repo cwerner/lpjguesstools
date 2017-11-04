@@ -14,6 +14,7 @@ import pandas as pd
 import xarray as xr
 import os
 import sys
+import dask.dataframe as dd
 
 from .cli import cli
 from .extra import set_config, get_config, parse_config #, RefDataBuilder
@@ -29,7 +30,7 @@ defaultAttrsDA = {'_FillValue': NODATA, 'missing_value': NODATA}
 # standard columns
 basecols = ['id', 'year', 'julianday']
 
-YEARS = range(1950, 1990)
+YEARS = range(1960, 1990)
 
 # functions
 
@@ -137,8 +138,8 @@ class IndexMapper():
         return (jx, ix)
 
 
-def get_annual_data(var, landforms, args, inpath='', 
-                    years=[], use_month_dim=False, subset='',
+def get_annual_data(var, landforms, df_frac, args, inpath='', 
+                    years=[], use_last_nyears=None, use_month_dim=False, subset='',
                     sel_var=None):
     """ Parse variable and return DataArrays (data, total_data) """
 
@@ -159,22 +160,32 @@ def get_annual_data(var, landforms, args, inpath='',
     except:
         df = pd.read_csv(os.path.join(inpath, "%s.out.gz" % var),
             delim_whitespace=True)
-            
-    log.debug("  Total number of data rows in file (raw data): %d" % len(df))
     
-    # limit df to years
-    if len(years) > 0:
-        log.debug("  Limiting years.")
-        df = df[ (df.Year >= years[0]) & (df.Year < years[-1])]
+    
+    if sel_var == 'FireRT':
+        log.debug("  Inverting fire return time")
+        df['FireRT'] = 1.0 / df['FireRT']
+    
+    log.debug("  Total number of data rows in file (raw data): %d" % len(df))
+
+    # limit df to years (either specified years or use last nyears)
+    if use_last_nyears != None:
+        max_yr = df.Year.max()
+        years = range(max_yr - (use_last_nyears-1), max_yr+1)
+        limit_yrs = True
+    
+    log.debug("  Limiting years")
+    df = df[ (df.Year >= years[0]) & (df.Year <= years[-1])]
+
     if len(df) == 0:
         log.critical("Requested years not in data.")
         exit(1)
-
+    
     log.debug("  Total number of data rows in file (year sel): %d" % len(df))
 
     # determine z dimension
-    nyears = max(df.Year) - min(df.Year)
-    outyears = range(min(df.Year), max(df.Year)+1)
+    nyears = df.Year.max() - df.Year.min()
+    outyears = range(df.Year.min(), df.Year.max()+1)
 
     def is_monthly(df):
         """Check if df is a montlhy dataframe."""
@@ -193,21 +204,78 @@ def get_annual_data(var, landforms, args, inpath='',
     # TODO: cut testing runtime, remove this later
     # df = df.head(150000)
 
+
     # calc mean over patches
     if 'Patch' in df.columns.values:
         groupcols = ['Lon','Lat','Year','Stand']
         df = df.groupby(groupcols).mean().reset_index()
+        del df['Patch']
+
+    if has_stand(df):
+        # fix index before merge
+        df.set_index(['Lon','Lat','Stand'], inplace=True)# set index for join
+        df = df.merge(df_frac, left_index=True, right_index=True)
     
-    # if average is requested, do average over the year column, too
+    df.reset_index(inplace=True)
+    # calc
     if args.avg:
+        log.info("Averaging years over selected timespan.")
         if 'Stand' in df.columns.values:
-            groupcols = ['Lon','Lat','Year','Stand']
+            groupcols = ['Lon','Lat','Stand']
         else:
-            groupcols = ['Lon','Lat','Year']
+            groupcols = ['Lon','Lat']
         df = df.groupby(groupcols).mean().reset_index()
+
+        # place this into yearly list with tuple index value: None 
+        df_yrs = [(None, df)]
+    else:
+        # split by year for performance considerations
+        df_yrs = []
+        for cnt, yr in enumerate(years):
+            yr_mask = df.Year == yr
+            df_yr = df[yr_mask]        
+            df_yrs.append((yr, df_yr))
+
+    log.debug("  Total number of data rows in file (annual avg): %d" % len(df))
+
+    data_cols = [c for c in df.columns.values if c not in ['Lat', 'Lon', 'Year', 'Stand']]
+
+
+
+    # do the stand/ lf_id avg
+
+    def weighed_average(grp):
+        return grp._get_numeric_data().multiply(grp['fraction'], axis=0).sum()/grp['fraction'].sum()
+
+    if 'Stand' in df.columns.values:
+        # if average is requested, do (weighted) average over the year column, too    
+
+        # loop over years
+        new_dfs = []
+        groupcols = ['Lon','Lat','Year'] #,'Stand']
+        #df = dd.from_pandas(df, npartitions=100)
+        for yr, df_yr in df_yrs:
+            log.debug("  Processing yr %s" % str(yr))
+            #new_df = df.groupby(groupcols).apply(wavg).reset_index() #.compute()
+            
+            new_df = df_yr.groupby(groupcols).apply(weighed_average)
+            del new_df['Lat']
+            del new_df['Lon']
+            del new_df['Year']
+            del new_df['Stand']
+            
+            new_dfs.append(new_df)
+        df = pd.concat(new_dfs)
+        df.columns = data_cols
+        df.reset_index(inplace=True)
+
+    if sel_var == 'FireRT':
+        log.debug("  Back-inverting fire return time")
+        df['FireRT'] = 1.0 / df['FireRT']
 
     log.debug("  Total number of data rows in file (final):    %d" % len(df))
 
+    
     # determine start column position
     def get_data_column_index(df):
         """Determine the start and end position of data columns."""
@@ -219,8 +287,10 @@ def get_annual_data(var, landforms, args, inpath='',
             cid_start = col_names.index('Patch') + 1
         elif 'Stand' in col_names:
             cid_start = col_names.index('Stand') + 1
-        else:
+        elif 'Year' in col_names:
             cid_start = col_names.index('Year') + 1
+        else:
+            cid_start = col_names.index('Lat') + 1
 
         # determine end position of data
         cid_end   = len(col_names)
@@ -251,12 +321,14 @@ def get_annual_data(var, landforms, args, inpath='',
     # second time axis (monthly substeps)
     zcoords2 = None
 
-    if use_month_dim:
-        mcoords = xr.DataArray( range(12), name='month')
-        mcoords.attrs['units'] = 'month'
 
     if is_pft(df):
         lcoords = xr.DataArray( PFTS, name='PFT')
+
+    # create 1 or 2 time dims (yr, yr+month)
+    if use_month_dim:
+        mcoords = xr.DataArray( range(12), name='month')
+        mcoords.attrs['units'] = 'month'
 
     if is_monthly(df):
         if not args.use_month_dim:
@@ -302,61 +374,6 @@ def get_annual_data(var, landforms, args, inpath='',
     data.attrs['missing_value'] = NODATA
     data.attrs['_FillValue'] = NODATA
     # optional (second) DataArray for Total (PFT) data
-
-    # landform lookup
-    # TODO: optimize that we only need to do this once
-    #       maybe wrap into a class (?)
-
-    # processing for stand/ patch output
-    if has_stand(df) and 'lf_ids' in landforms.data_vars:
-
-        lookup = {}
-        
-        reffile, lf_fraction_var = args.refinfo
-        lfids = landforms['lf_ids'].values
-        # add stand weight column (using lanform fraction)
-        df['lffrac'] = -1.0
-
-        done_coords = []
-
-        if subset=='north':
-            # aspect bit 1
-            subset_stands = [x for x in lfids if str(int(x))[-1] == '1']
-        elif subset == 'south':
-            # aspect bit 3
-            subset_stands = [x for x in lfids if str(int(x))[-1] == '3']
-        else:
-            subset_stands = lfids
-
-        for rx, row in df.iterrows():
-            # get coord and add to lookup table, do not run if coord is present
-            jx, ix = mapper(row.Lat, row.Lon)
-            stand = int(row.Stand)
-
-            if (jx, ix, stand) not in lookup.keys():
-                if (jx, ix) not in done_coords:
-                    done_coords.append((jx, ix))
-                frac = landforms[lf_fraction_var][:, jx, ix].sel(lf_id=stand)
-                lookup[(jx, ix, stand)] = frac.values * 0.01
-
-            # assign value (-1 values will be removed in the next step)
-            if stand in subset_stands:
-                df.loc[rx, 'lffrac'] = lookup[(jx, ix, stand)]
-
-
-        # drop rows if they are not in subset_stands
-        df = df[df['lffrac'] != -1]
-
-        # aggregate (subset) of landforms
-
-        def weighted(x, cols, w="lffrac"):
-            """Weighted-average over a group of rows."""
-            return pd.Series(np.average(x[cols], weights=x[w], axis=0), cols)
-
-        groupcols = ['Lon','Lat','Year']
-        exclcols = groupcols + ['lffrac']
-        datacols = [x for x in list(df.columns.values) if x not in exclcols]
-        df = df.groupby(groupcols).apply(weighted, datacols).reset_index()
 
     for _, row in df.iterrows():
         jx, ix = mapper(row.Lat, row.Lon)
@@ -408,30 +425,63 @@ def main():
     def use_cli_refdata():
         return args.refinfo is not None
 
+    def get_fractions(ds_lf, refvar):
+        """Parse landform fractions from reference file"""
+        
+        if refvar not in ds_lf.data_vars:
+            log.critical("Var <%s> not in %s" % ('fraction', reffile))
+            exit(1)
+        else:
+            log.info("Get fractional landform cover. Reading var %s from %s..." % (refvar, reffile))
+            da = ds_lf[refvar]
+            # iterate over lf_ids
+            dfs = []
+            for lf_id in ds_lf.lf_id:
+                # fix nan
+                x = da.sel(lf_id=lf_id).to_pandas().fillna(-9999)
+                df = da.sel(lf_id=lf_id).to_pandas().stack().reset_index()
+                
+                # replace -9999 with nan again
+                df.replace(to_replace=-9999, value=np.nan, inplace=True)
+                df.columns = ['Lat','Lon','fraction']
+                if len(df) > 0:
+                    df['Stand'] = lf_id.values
+                    dfs.append(df)            
+
+            df = pd.concat(dfs, ignore_index=True)
+            df.set_index(['Lon', 'Lat', 'Stand'], inplace=True)
+
+        return df
+
     if use_cli_refdata():
         rdata = args.refinfo
         reffile, refvar = rdata
 
         if os.path.isfile(reffile):
-            landforms = xr.open_dataset(reffile).load()
-            if refvar is not None:
-                if refvar not in refnc.data_vars:
-                    log.critical("Var <%s> not in %s" % (refvar, reffile))
-                    exit(1)
+            with xr.open_dataset(reffile).load() as ds_lf:
+                if refvar is not None:
+                    df_frac = get_fractions(ds_lf, refvar)
+                else:
+                    refvar = 'fraction'
+                    df_frac = get_fractions(ds_lf, refvar)
     else:
-        # get domain info from conf file
-        # build a dummy array with the specified coords but without
-        # landform info
-        if 'refdata' in cfg.keys():
-            lats, lons = _read_refdata_info(cfg)
-            dummy = xr.DataArray(np.ones((len(lats), len(lons))), 
-                                   coords=[('lat', lats ),('lon', lons)])
-            landforms = xr.Dataset()
-            landforms['dummy'] = dummy
-        else:
-            log.critical("No refdata section in conf file found nor -r flag specified.\n")
-            log.critical(parser.print_help())
-            exit(1)
+        log.error("We currently need a refdata file!")
+        exit(-1)
+                        
+    #else:
+    #    # get domain info from conf file
+    #    # build a dummy array with the specified coords but without
+    #    # landform info
+    #    if 'refdata' in cfg.keys():
+    #        lats, lons = _read_refdata_info(cfg)
+    #        dummy = xr.DataArray(np.ones((len(lats), len(lons))), 
+    #                               coords=[('lat', lats ),('lon', lons)])
+    #        landforms = xr.Dataset()
+    #        landforms['dummy'] = dummy
+    #    else:
+    #        log.critical("No refdata section in conf file found nor -r flag specified.\n")
+    #        log.critical(parser.print_help())
+    #        exit(1)
             
     # derive data from cli or config file
     global_info = _read_global_info(cfg)
@@ -481,21 +531,31 @@ def main():
             if sset != '':
                 suffix = '_%s' % sset
 
-            # use filename as variable, also selected column/ var if requested
+            # use filename as variable, also selected column/ var if requested    
+            # use last_nyears instead of actual year range
+            uselast = None
+            if args.last_nyears != -1:
+                log.debug("  Using last nyears %d" % args.last_nyears)
+                uselast = args.last_nyears
+            
             if len(named_vars.keys()) > 0:
                 sel_vars = named_vars.keys()
                 for var in sel_vars:
-                    da1, _ = get_annual_data(file, landforms, args,
+                    da1, _ = get_annual_data(file, ds_lf, df_frac, args,
                                             inpath=inpath,
+                                            years=args.years,
                                             use_month_dim=use_month_dim,
+                                            use_last_nyears=uselast,
                                             subset=sset,
                                             sel_var=var)
                     # rename variable
                     ds[named_vars[var] + suffix] = da1
             else:
-                da1, da2 = get_annual_data(file, landforms, args,
+                da1, da2 = get_annual_data(file, ds_lf, df_frac, args,
                                         inpath=inpath,
+                                        years=args.years,
                                         use_month_dim=use_month_dim,
+                                        use_last_nyears=uselast,
                                         subset=sset)
             
                 ds[file + suffix] = da1

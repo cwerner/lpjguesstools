@@ -137,13 +137,12 @@ def cli():
                     action='store_true',
                     help="create extra month dimension <time, month, lat, lon>")
 
-    # TODO: implemented, but needs more flexibility (allow any netCDF file etc.)
     parser.add_argument("-r",
                     dest="refinfo",
                     action=MultiArgsAction,
                     const=2,
                     metavar="FILE,VAR",
-                    help="refdata from (landforms) netCDF file")
+                    help="refdata from (landforms, var: fraction) netCDF file")
 
     parser.add_argument("-S",
                     dest="storeconfig",
@@ -159,7 +158,7 @@ def cli():
 
     parser.add_argument("-y",
                     dest="years",
-                    default=range(1950,1989),
+                    default=range(1960,1990),
                     action=RangeAction,
                     help="range of years to consider")
 
@@ -182,7 +181,7 @@ def cli():
         log.critical("Option -S requires that you pass a file with -c.")
         exit(1)
 
-    if args.years != range(1950,1989) and args.last_nyears != -1:
+    if args.years != range(1960,1990) and args.last_nyears != -1:
         log.critical("Use either option -y or Option -l.")
         exit(1)
 
