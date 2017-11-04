@@ -321,11 +321,11 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
                     self.dim_names.append(d)
                     self.dim_sizes.append(len(value))    
 
-            self.data = xr.DataArray(np.ones( self.dim_sizes ) * NODATA,
+            self.data = xr.DataArray(np.ones( self.dim_sizes ) * np.nan,
                                      coords=da_coords)
 
             self.data.attrs['units'] = '-'
-            self.data.attrs['missing_value'] = NODATA
+            #self.data.attrs['missing_value'] = NODATA
             self.data.attrs['_FillValue'] = NODATA
 
             if 'pft' in kwargs.keys():
@@ -334,11 +334,11 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
                 dim_sizes = self.dim_sizes[:]
                 dim_names.pop(p)
                 dim_sizes.pop(p)
-                self.data_total = xr.DataArray(np.ones( dim_sizes ) * NODATA,
+                self.data_total = xr.DataArray(np.ones( dim_sizes ) * np.nan,
                                                coords=da_coords2)
 
                 self.data_total.attrs['units'] = '-'
-                self.data_total.attrs['missing_value'] = NODATA
+                #self.data_total.attrs['missing_value'] = NODATA
                 self.data_total.attrs['_FillValue'] = NODATA
 
         def add(self, year, jx, ix, values, lf_id=None):
@@ -358,8 +358,6 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
                     self.data_total[year_p, jx, ix] = sum(values)
             elif 'month' in self.dim_names or 'time_m' in self.dim_names:
                 if 'month' in self.dim_names:
-                    #print self.dim_names
-                    #print values
                     add_p = self.dim_names.index('month')
                     if 'lf_id' in self.dim_names:
                         lfid_p = self.lfids.index(lf_id) 
@@ -381,6 +379,14 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
 
         def fetch(self):
             return self.data, self.data_total
+        
+        def mask(self):
+            dims = list(self.data.dims)
+            dims.pop(dims.index('lat'))
+            dims.pop(dims.index('lon'))
+            x = self.data.sum(dim=dims, skipna=True).values
+            return np.where(x==0,0,1)
+
 
     # setup output array
     mcoords = None  # extra month axis
@@ -449,8 +455,8 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
             dstore.add(_year, jx, ix, rdata)    
 
     data, data2 = dstore.fetch()
-
-    return data, data
+    mask = dstore.mask()
+    return (data, data2, mask)
 
 
 def main():
@@ -532,6 +538,8 @@ def main():
     # output netcdf file
     ds = xr.Dataset()
 
+    masks = []
+
     for file in data_files:
 
         # use plain filename or also derive selected vars and renamed vars
@@ -570,7 +578,7 @@ def main():
             if len(named_vars.keys()) > 0:
                 sel_vars = named_vars.keys()
                 for var in sel_vars:
-                    da1, _ = get_annual_data(file, ds_lf, df_frac, args,
+                    da1, _, ma = get_annual_data(file, ds_lf, df_frac, args,
                                             inpath=inpath,
                                             years=args.years,
                                             use_month_dim=use_month_dim,
@@ -581,7 +589,7 @@ def main():
                     # rename variable
                     ds[named_vars[var] + suffix] = da1
             else:
-                da1, da2 = get_annual_data(file, ds_lf, df_frac, args,
+                da1, da2, ma = get_annual_data(file, ds_lf, df_frac, args,
                                         inpath=inpath,
                                         years=args.years,
                                         use_month_dim=use_month_dim,
@@ -594,6 +602,11 @@ def main():
                 if type(da2) == xr.DataArray:
                     ds['tot_%s%s' % (file, suffix)] = da2
 
+            masks.append(ma)
+
+    mask = np.sum(masks, axis=0)
+    mask = np.where(mask==0,np.nan,1)
+    da_mask = xr.DataArray(mask, coords=[da1.coords['lat'], da1.coords['lon']], dims=['lat','lon'])
 
     # all potential coordinate variables
     all_c_vars = ['time','time_m','month','pft','lat','lon']
@@ -603,8 +616,8 @@ def main():
     d_vars = [x for x in sorted([x for x in ds.data_vars]) if x not in c_vars]
 
     # fraction variable
-    ds['fraction'] = da_frac
-    ds['lfcnt'] = da_lfcnt
+    ds['fraction'] = da_frac * da_mask
+    ds['lfcnt'] = da_lfcnt * da_mask
     d_vars = ['lfcnt', 'fraction'] + d_vars
      
     ds[c_vars + d_vars].squeeze(drop=True).to_netcdf(outname, 
