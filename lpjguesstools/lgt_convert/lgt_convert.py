@@ -620,7 +620,15 @@ def main():
     ds['lfcnt'] = da_lfcnt * da_mask
     d_vars = ['lfcnt', 'fraction'] + d_vars
      
-    ds[c_vars + d_vars].squeeze(drop=True).to_netcdf(outname, 
-        format='NETCDF4_CLASSIC', unlimited_dims='time')
+    ds = ds[c_vars + d_vars].squeeze(drop=True)
+    ds.to_netcdf(outname[:-3] + '_lfid.nc', format='NETCDF4_CLASSIC', unlimited_dims='time')
+
+    # create lf average version of file
+    dvars = [x for x in ds.data_vars if x not in ['lfcnt', 'fraction']] 
+    dsout = xr.Dataset()
+    for dv in dvars:
+        dsout[dv] = (ds[dv] * (ds['fraction']*0.01)).sum(dim='lf_id').squeeze(drop=True).where(ds['lfcnt']>0)
+    
+    dsout.to_netcdf(outname, format='NETCDF4_CLASSIC', unlimited_dims='time')
 
     log.debug("Done.")
