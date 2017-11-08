@@ -182,7 +182,6 @@ def get_annual_data(var, landforms, df_frac, cfg,
     if cfg.LAST_NYEARS is not None:
         max_yr = df.Year.max()
         years = range(max_yr - (cfg.LAST_NYEARS-1), max_yr+1)
-        limit_yrs = True
 
     if len(cfg.YEARS) > 0:
         log.debug("  Limiting years")
@@ -305,6 +304,8 @@ def get_annual_data(var, landforms, df_frac, cfg,
             self.data = None
             self.data_total = None
             self.years = years
+            # special year list for monthly time axis
+            self.yearsm = [item for item in years for i in range(12)]
             self.lfids = []
             self.pfts = []
             
@@ -350,7 +351,11 @@ def get_annual_data(var, landforms, df_frac, cfg,
                 year_p = 0
                 self.years = [0]
             else:
-                year_p = self.years.index(int(year))
+                if 'time_m' in self.dim_names:
+                    year_p = self.yearsm.index(int(year)) 
+                else:
+                    year_p = self.years.index(int(year))
+                
 
             if 'pft' in self.dim_names:
                 if 'lf_id' in self.dim_names:
@@ -618,7 +623,6 @@ def main(cfg):
     ds['lfcnt'] = da_lfcnt * da_mask
     d_vars = ['lfcnt', 'fraction'] + d_vars
 
-    
     # add site_lat, site_lon to file
     if cfg.SMODE:
         site_lon = ds.coords['lon'].values[0]        
@@ -628,7 +632,11 @@ def main(cfg):
         
     ds = ds[c_vars + d_vars].squeeze(drop=True)
     
-    ds.to_netcdf(cfg.OUTNAME[:-3] + '_lfid.nc', format='NETCDF4_CLASSIC', unlimited_dims='time')
+    # add compression
+    comp = dict(zlib=True, complevel=5)
+    
+    encoding = {var: comp for var in ds.data_vars}
+    ds.to_netcdf(cfg.OUTNAME[:-3] + '_lfid.nc', format='NETCDF4_CLASSIC', unlimited_dims='time', encoding=encoding)
 
     # create lf average version of file
     dvars = [x for x in ds.data_vars if x not in ['lfcnt', 'fraction']] 
@@ -641,6 +649,7 @@ def main(cfg):
         ds.attrs['site_lon'] = site_lon
         ds.attrs['site_lat'] = site_lat
     
-    dsout.to_netcdf(cfg.OUTNAME, format='NETCDF4_CLASSIC', unlimited_dims='time')
+    encoding = {var: comp for var in dsout.data_vars}    
+    dsout.to_netcdf(cfg.OUTNAME, format='NETCDF4_CLASSIC', unlimited_dims='time', encoding=encoding)
 
     log.debug("Done.")
