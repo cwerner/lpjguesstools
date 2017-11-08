@@ -14,7 +14,6 @@ import pandas as pd
 import xarray as xr
 import os
 import sys
-import dask.dataframe as dd
 
 from .cli import cli
 from .extra import set_config, get_config, parse_config #, RefDataBuilder
@@ -256,7 +255,6 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
         # loop over years
         new_dfs = []
         groupcols = ['Lon','Lat','Year'] #,'Stand']
-        #df = dd.from_pandas(df, npartitions=100)
         for yr, df_yr in df_yrs:
             log.debug("  Processing yr %s" % str(yr))
             #new_df = df.groupby(groupcols).apply(wavg).reset_index() #.compute()
