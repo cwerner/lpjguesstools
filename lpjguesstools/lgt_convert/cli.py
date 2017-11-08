@@ -92,6 +92,11 @@ def cli(avg, config, last_nyears, use_month_dim, refinfo, smode, storeconfig, ye
     else:
          refinfo=(None,None)
  
+ 
+    if smode and (use_month_dim == False):
+         log.warn("Site mode requires the use of a monthly dim (-m). Proceeding.")
+         use_month_dim = True
+ 
     # the setup dictionary to convert into a bunch obj
     config_data=dict(AVG=avg,
                      CONFIG=config,
