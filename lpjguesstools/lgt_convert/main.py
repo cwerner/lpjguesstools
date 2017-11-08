@@ -1,11 +1,12 @@
-# -*- coding: utf-8 -*-
-#
-# lgt_convert.py
-# ==============
-#
-# Christian Werner
-# christian.werner@senckenberg.de
-"""lpjguesstools.lgt_convert: provides entry point main()."""
+"""FILE lgt_convert.main.py
+
+This script converts standard and SubPixel 
+LPJ-GUESS .out files to netCDF files
+
+Christian Werner, SENCKENBERG Biodiversity and Climate Research Centre (BiK-F)
+email: christian.werner@senkenberg.de
+2017/11/07
+"""
 
 from collections import OrderedDict
 import logging
@@ -15,7 +16,6 @@ import xarray as xr
 import os
 import sys
 
-from .cli import cli
 from .extra import set_config, get_config, parse_config #, RefDataBuilder
 
 __version__ = "0.0.1"
@@ -143,8 +143,7 @@ class IndexMapper():
         return (jx, ix)
 
 
-def get_annual_data(var, landforms, df_frac, args, inpath='', 
-                    years=[], use_last_nyears=None, use_month_dim=False, subset='',
+def get_annual_data(var, landforms, df_frac, cfg,
                     sel_var=None, lf_ids=None):
     """ Parse variable and return DataArrays (data, total_data) """
 
@@ -166,10 +165,10 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
 
     # read either regular or compressed data files
     try:
-        df = pd.read_csv(os.path.join(inpath, "%s.out" % var),
+        df = pd.read_csv(os.path.join(cfg.INDIR, "%s.out" % var),
             delim_whitespace=True)
     except:
-        df = pd.read_csv(os.path.join(inpath, "%s.out.gz" % var),
+        df = pd.read_csv(os.path.join(cfg.INDIR, "%s.out.gz" % var),
             delim_whitespace=True)
     
     # special transformation for FireRT variable
@@ -180,14 +179,14 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
     log.debug("  Total number of data rows in file (raw data): %d" % len(df))
 
     # limit df to years (either specified years or use last nyears)
-    if use_last_nyears != None:
+    if cfg.LAST_NYEARS is not None:
         max_yr = df.Year.max()
-        years = range(max_yr - (use_last_nyears-1), max_yr+1)
+        years = range(max_yr - (cfg.LAST_NYEARS-1), max_yr+1)
         limit_yrs = True
 
-    if len(years) > 0:
+    if len(cfg.YEARS) > 0:
         log.debug("  Limiting years")
-        df = df[ (df.Year >= years[0]) & (df.Year <= years[-1])]
+        df = df[ (df.Year >= cfg.YEARS[0]) & (df.Year <= cfg.YEARS[-1])]
 
     if len(df) == 0:
         log.critical("Requested years not in data.")
@@ -198,6 +197,14 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
     # determine z dimension
     nyears = df.Year.max() - df.Year.min()
     outyears = range(df.Year.min(), df.Year.max()+1)
+
+    # safety check: if years > 2000 and not site mode
+    #               possible user error (and memory kill likely) 
+    if len(outyears) > 2000 and cfg.SMODE == False:
+        log.warn("Large number of years (%d) in data and region mode" % (len(outyears)))
+        log.warn("selected. Are you sure you do not want -S (site mode)? This")
+        log.warn("will likely crash due to insufficient memory.")
+        
 
     # calc mean over patches
     if 'Patch' in df.columns.values:
@@ -216,7 +223,7 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
         df.set_index(['Lon','Lat','Year','Stand'], inplace=True)
         df.reset_index(inplace=True)
         
-    if args.avg:
+    if cfg.AVG:
         # average years
         log.debug("  Averaging years over selected timespan.")
         if 'Stand' in df.columns.values:
@@ -324,7 +331,6 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
                                      coords=da_coords)
 
             self.data.attrs['units'] = '-'
-            #self.data.attrs['missing_value'] = NODATA
             self.data.attrs['_FillValue'] = NODATA
 
             if 'pft' in kwargs.keys():
@@ -337,11 +343,10 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
                                                coords=da_coords2)
 
                 self.data_total.attrs['units'] = '-'
-                #self.data_total.attrs['missing_value'] = NODATA
                 self.data_total.attrs['_FillValue'] = NODATA
 
         def add(self, year, jx, ix, values, lf_id=None):
-            if args.avg:
+            if cfg.AVG:
                 year_p = 0
                 self.years = [0]
             else:
@@ -392,7 +397,7 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
     lfcoords = None # extra lf_ids axis
 
     # build the coordinate dictionary
-    if args.smode:
+    if cfg.SMODE:
         # single site mode, simply take lat, lon from first line of data
         site_lon = df.loc[0, 'Lon']
         site_lat = df.loc[0, 'Lat']
@@ -404,7 +409,7 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
         # modify coords for single site mode
 
 
-    if args.avg:
+    if cfg.AVG:
         len_outyears = 1
     else:
         len_outyears = len(outyears)
@@ -427,13 +432,13 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
         coords['pft'] = xr.DataArray( PFTS, name='pft')
 
     # create 1 or 2 time dims (yr, yr+month)
-    if use_month_dim:
+    if cfg.USE_MONTH_DIM:
         mcoords = xr.DataArray( range(12), name='month')
         mcoords.attrs['units'] = 'month'
 
     if is_monthly(df):
         log.debug("  We have a monthly variable.")
-        if not args.use_month_dim:
+        if not cfg.USE_MONTH_DIM:
             zcoords2 = xr.DataArray( np.linspace(outyears[0], outyears[-1],
                                                  num=len_outyears*12,
                                                  endpoint=False), name='time')
@@ -451,14 +456,14 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
 
     for _, row in df.iterrows():
         # map lat lon position to index
-        if args.smode:
+        if cfg.SMODE:
             # site mode: only one lat, lon position
             jx, ix = 0, 0
         else:
             jx, ix = mapper(row.Lat, row.Lon)
         rdata = row[cid_start: cid_end+1]
         
-        if args.avg:
+        if cfg.AVG:
             _year = 0
         else:
             _year = row.Year
@@ -472,18 +477,16 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
     return (data, data2, mask)
 
 
-def main():
+def main(cfg):
     """Main routine."""
 
-    # INPUT
-    parser, args = cli()
-    cfg = get_config(cfgFile=args.config)
+    cfgdata = get_config(cfgFile=cfg.CONFIG)
 
-    if args.storeconfig:
-        set_config(cfg)
+    if cfg.STORECONFIG:
+        set_config(cfgdata)
 
     def use_cli_refdata():
-        return args.refinfo is not None
+        return cfg.REFINFO is not None
 
     def get_fractions(ds_lf, refvar):
         """Parse landform fractions from reference file"""
@@ -514,7 +517,7 @@ def main():
         return df
 
     if use_cli_refdata():
-        rdata = args.refinfo
+        rdata = cfg.REFINFO
         reffile, refvar = rdata
 
         if os.path.isfile(reffile):
@@ -532,21 +535,15 @@ def main():
         exit(-1)
                         
     # derive data from cli or config file
-    global_info = _read_global_info(cfg)
+    global_info = _read_global_info(cfgdata)
 
-    inpath = args.indir
-    
-    if not os.path.isdir(inpath):
+    if not os.path.isdir(cfg.INDIR):
         log.critical("Specified input directory does not exist.\n")
-        log.critical(parser.print_help())
         exit(1)
     
-    outname = args.outname #'lpjguess_spatial_200_mdim.nc'
-    use_month_dim = args.use_month_dim
+    outname = cfg.OUTNAME
 
-    data_files = [x[0] for x in _read_data_info(cfg)]
-
-    log.debug("TODO: We need to produce proper time attributes")
+    data_files = [x[0] for x in _read_data_info(cfgdata)]
 
     # output netcdf file
     ds = xr.Dataset()
@@ -569,12 +566,12 @@ def main():
             return 'sp_' in x
 
         # TODO: split into seperate netCDF files
-        if is_subpixel_file(file) and args.north_south:
-            log.debug("  Calculating south, north and full landform average.")
-            sset_list = ['north', 'south', '']
-        else:
-            log.debug("  Calculating full landform average.")
-            sset_list = ['']
+        ##if is_subpixel_file(file) and args.north_south:
+        ##    log.debug("  Calculating south, north and full landform average.")
+        ##    sset_list = ['north', 'south', '']
+        ##else:
+        log.debug("  Calculating full landform average.")
+        sset_list = ['']
 
         for sset in sset_list:
             suffix = ''
@@ -583,31 +580,19 @@ def main():
 
             # use filename as variable, also selected column/ var if requested    
             # use last_nyears instead of actual year range
-            uselast = None
-            if args.last_nyears != -1:
-                log.debug("  Using last nyears %d" % args.last_nyears)
-                uselast = args.last_nyears
+            if cfg.LAST_NYEARS is not None:
+                log.debug("  Using last nyears %d" % cfg.LAST_NYEARS)
             
             if len(named_vars.keys()) > 0:
                 sel_vars = named_vars.keys()
                 for var in sel_vars:
-                    da1, _, ma = get_annual_data(file, ds_lf, df_frac, args,
-                                            inpath=inpath,
-                                            years=args.years,
-                                            use_month_dim=use_month_dim,
-                                            use_last_nyears=uselast,
-                                            subset=sset,
+                    da1, _, ma = get_annual_data(file, ds_lf, df_frac, cfg,
                                             sel_var=var,
                                             lf_ids=list(lf_ids))
                     # rename variable
                     ds[named_vars[var] + suffix] = da1
             else:
-                da1, da2, ma = get_annual_data(file, ds_lf, df_frac, args,
-                                        inpath=inpath,
-                                        years=args.years,
-                                        use_month_dim=use_month_dim,
-                                        use_last_nyears=uselast,
-                                        subset=sset,
+                da1, da2, ma = get_annual_data(file, ds_lf, df_frac, cfg,
                                         lf_ids=list(lf_ids))
             
                 ds[file + suffix] = da1
@@ -635,7 +620,7 @@ def main():
 
     
     # add site_lat, site_lon to file
-    if args.smode:
+    if cfg.SMODE:
         site_lon = ds.coords['lon'].values[0]        
         site_lat = ds.coords['lat'].values[0]
         ds.attrs['site_lon'] = site_lon
@@ -643,7 +628,7 @@ def main():
         
     ds = ds[c_vars + d_vars].squeeze(drop=True)
     
-    ds.to_netcdf(outname[:-3] + '_lfid.nc', format='NETCDF4_CLASSIC', unlimited_dims='time')
+    ds.to_netcdf(cfg.OUTNAME[:-3] + '_lfid.nc', format='NETCDF4_CLASSIC', unlimited_dims='time')
 
     # create lf average version of file
     dvars = [x for x in ds.data_vars if x not in ['lfcnt', 'fraction']] 
@@ -652,10 +637,10 @@ def main():
         dsout[dv] = (ds[dv] * (ds['fraction']*0.01)).sum(dim='lf_id').squeeze(drop=True).where(ds['lfcnt']>0)
     
     # add site_lat, site_lon to file
-    if args.smode:
+    if cfg.SMODE:
         ds.attrs['site_lon'] = site_lon
         ds.attrs['site_lat'] = site_lat
     
-    dsout.to_netcdf(outname, format='NETCDF4_CLASSIC', unlimited_dims='time')
+    dsout.to_netcdf(cfg.OUTNAME, format='NETCDF4_CLASSIC', unlimited_dims='time')
 
     log.debug("Done.")
