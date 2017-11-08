@@ -234,7 +234,7 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
     else:
         # split by year for performance considerations
         df_yrs = []
-        for cnt, yr in enumerate(years):
+        for cnt, yr in enumerate(outyears):
             yr_mask = df.Year == yr
             df_yr = df[yr_mask]        
             df_yrs.append((yr, df_yr))
@@ -634,8 +634,17 @@ def main():
     ds['fraction'] = da_frac * da_mask
     ds['lfcnt'] = da_lfcnt * da_mask
     d_vars = ['lfcnt', 'fraction'] + d_vars
-     
+
+    
+    # add site_lat, site_lon to file
+    if args.smode:
+        site_lon = ds.coords['lon'].values[0]        
+        site_lat = ds.coords['lat'].values[0]
+        ds.attrs['site_lon'] = site_lon
+        ds.attrs['site_lat'] = site_lat
+        
     ds = ds[c_vars + d_vars].squeeze(drop=True)
+    
     ds.to_netcdf(outname[:-3] + '_lfid.nc', format='NETCDF4_CLASSIC', unlimited_dims='time')
 
     # create lf average version of file
@@ -643,6 +652,11 @@ def main():
     dsout = xr.Dataset()
     for dv in dvars:
         dsout[dv] = (ds[dv] * (ds['fraction']*0.01)).sum(dim='lf_id').squeeze(drop=True).where(ds['lfcnt']>0)
+    
+    # add site_lat, site_lon to file
+    if args.smode:
+        ds.attrs['site_lon'] = site_lon
+        ds.attrs['site_lat'] = site_lat
     
     dsout.to_netcdf(outname, format='NETCDF4_CLASSIC', unlimited_dims='time')
 
