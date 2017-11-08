@@ -394,7 +394,17 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
     lfcoords = None # extra lf_ids axis
 
     # build the coordinate dictionary
-    coords = dict(lat=lats, lon=lons)
+    if args.smode:
+        # single site mode, simply take lat, lon from first line of data
+        site_lon = df.loc[0, 'Lon']
+        site_lat = df.loc[0, 'Lat']
+        coords = dict(lat=[site_lat], lon=[site_lon])
+    else:
+        # default mode, take lat, lon from landforms_2d file
+        coords = dict(lat=lats, lon=lons)
+
+        # modify coords for single site mode
+
 
     if args.avg:
         len_outyears = 1
@@ -411,7 +421,7 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
         coords['lf_id'] = lfcoords
 
     # add time axis
-    zcoords = xr.DataArray( range(len_outyears), name='time')
+    zcoords = xr.DataArray( outyears, name='time')
     zcoords.attrs['units'] = 'yearly'
 
     if is_pft(df):
@@ -426,7 +436,7 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
     if is_monthly(df):
         log.debug("  We have a monthly variable.")
         if not args.use_month_dim:
-            zcoords2 = xr.DataArray( np.linspace(0, len_outyears,
+            zcoords2 = xr.DataArray( np.linspace(outyears[0], outyears[-1],
                                                  num=len_outyears*12,
                                                  endpoint=False), name='time')
             
@@ -443,7 +453,11 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
 
     for _, row in df.iterrows():
         # map lat lon position to index
-        jx, ix = mapper(row.Lat, row.Lon)
+        if args.smode:
+            # site mode: only one lat, lon position
+            jx, ix = 0, 0
+        else:
+            jx, ix = mapper(row.Lat, row.Lon)
         rdata = row[cid_start: cid_end+1]
         
         if args.avg:

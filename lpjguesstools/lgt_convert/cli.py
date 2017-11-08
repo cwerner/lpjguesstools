@@ -162,6 +162,12 @@ def cli():
                     action=RangeAction,
                     help="range of years to consider")
 
+    parser.add_argument("-s",
+                    dest="smode",
+                    default=False,
+                    action='store_true',
+                    help="run in site mode (only single coordinate)")
+
     # extra subpixel/ landform switches
     parser.add_argument("--ns",
                     dest="north_south",
