@@ -187,7 +187,7 @@ def cli():
         log.critical("Option -S requires that you pass a file with -c.")
         exit(1)
 
-    if args.years != range(1960,1990) and args.last_nyears != -1:
+    if args.years != [] and args.last_nyears != -1:
         log.critical("Use either option -y or Option -l.")
         exit(1)
 
