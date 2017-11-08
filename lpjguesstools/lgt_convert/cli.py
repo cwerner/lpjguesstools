@@ -158,7 +158,7 @@ def cli():
 
     parser.add_argument("-y",
                     dest="years",
-                    default=range(1960,1990),
+                    default=[],
                     action=RangeAction,
                     help="range of years to consider")
 

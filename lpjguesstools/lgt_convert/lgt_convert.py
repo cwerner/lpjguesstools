@@ -185,9 +185,10 @@ def get_annual_data(var, landforms, df_frac, args, inpath='',
         max_yr = df.Year.max()
         years = range(max_yr - (use_last_nyears-1), max_yr+1)
         limit_yrs = True
-    
-    log.debug("  Limiting years")
-    df = df[ (df.Year >= years[0]) & (df.Year <= years[-1])]
+
+    if len(years) > 0:
+        log.debug("  Limiting years")
+        df = df[ (df.Year >= years[0]) & (df.Year <= years[-1])]
 
     if len(df) == 0:
         log.critical("Requested years not in data.")
