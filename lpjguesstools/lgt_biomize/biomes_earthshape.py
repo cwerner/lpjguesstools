@@ -151,7 +151,7 @@ def classification(biome, all_pfts, data):
     # Special tree PFT groups
     tebe_trees = ['TeBE_tm', 'TeBE_itm']    # temperate broadleaf evergreen
     tebs_trees = ['TeBS_tm', 'TeBS_itm']    # temperate decidious (Notofagus)
-
+    scl_trees  = ['TeBE_itscl', 'TeBE_tscl'] # scleophyllous trees
     # Thresholds
     FT = 2.5   # forest/woodland threshold
     WT = 1.0  # woodland/grassland threshold
@@ -174,19 +174,19 @@ def classification(biome, all_pfts, data):
         b = biome.TeBS    # decidious forest (Notofagus)
 
     # high-altitude forests TeBS dominante trees
-    elif (d.lai_w >= WT * 0.5 and d.fr(['TeBE_itscl']+SclShrubPFT, woody=True) < 0.5) and d.sum_lai(CldShrubPFT) < 0.3:   # and max_t(tebs_trees)):
+elif (d.lai_w >= WT * 0.5 and d.fr(scl_trees+SclShrubPFT, woody=True) < 0.5) and d.sum_lai(CldShrubPFT) < 0.3:   # and max_t(tebs_trees)):
         b = biome.TeMF    # high-alt mixed
 
     # sclerophyllous (SclWF) - woodland, sclerophyllous PFTs >= 50% of woody, cold shrubs < 0.05 LAI
-    elif (d.lai_w >= WT * 0.5 and d.fr(['TeBE_itscl']+SclShrubPFT, woody=True) >= 0.5): # and sum_lai(CldShrubPFT) < 0.05:
+elif (d.lai_w >= WT * 0.5 and d.fr(scl_trees+SclShrubPFT, woody=True) >= 0.5): # and sum_lai(CldShrubPFT) < 0.05:
         b = biome.SclWF   # sclerophyllous woodland
 
     # matorral (Mat) - less than a woodland, sclerophyllous PFTs >= 50%
-    elif (d.lai_w < WT * 0.5 and d.fr(['TeBE_itscl']+SclShrubPFT, woody=True) >= 0.5 and d.lai_w > 0.1) :
+elif (d.lai_w < WT * 0.5 and d.fr(scl_trees+SclShrubPFT, woody=True) >= 0.5 and d.lai_w > 0.1) :
         b = biome.Mat     # matorral
 
     # high-altitude forests TeBS dominante trees
-    elif (d.lai_w < WT * 0.5 and d.fr(['TeBE_itscl']+SclShrubPFT, woody=True) < 0.5 and d.lai_w > 0.1) :
+elif (d.lai_w < WT * 0.5 and d.fr(scl_trees+SclShrubPFT, woody=True) < 0.5 and d.lai_w > 0.1) :
         b = biome.TeMF     # high-alt mixed forest
 
     # temperate mixed forest/ bogs - a woodland, TeBE >30%, TeBE dominate trees
