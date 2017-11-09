@@ -17,6 +17,8 @@ import numpy as np
 
 # TODO move this into a tools file
 def enum(*sequential, **named):
+    # default enum unclassified (99)
+    named.update(dict(unclassified=99))
     enums = OrderedDict(zip(sequential, range(len(sequential))), **named)
     reverse = dict((value, key) for key, value in enums.iteritems())
     enums['content'] = [reverse[x] for x in enums.values()]
@@ -216,5 +218,4 @@ def classification(biome, all_pfts, data):
     else:
         print 'UNDEFINED'
         b = 99
-        exit()
     return b
