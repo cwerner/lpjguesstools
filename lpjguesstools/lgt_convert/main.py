@@ -181,7 +181,7 @@ def get_annual_data(var, landforms, df_frac, cfg,
     # limit df to years (either specified years or use last nyears)
     if cfg.LAST_NYEARS is not None:
         max_yr = df.Year.max()
-        cfg['YEARS'] = range(max_yr - (cfg.LAST_NYEARS-1), max_yr+1)
+        cfg.overwrite(dict(YEARS=range(max_yr - (cfg.LAST_NYEARS-1), max_yr+1)))
 
     if len(cfg.YEARS) > 0:
         log.debug("  Limiting years")
@@ -194,7 +194,7 @@ def get_annual_data(var, landforms, df_frac, cfg,
     log.debug("  Total number of data rows in file (year sel): %d" % len(df))
 
     # determine z dimension
-    nyears = df.Year.max() - df.Year.min()
+    #nyears = df.Year.max() - df.Year.min()
     outyears = range(df.Year.min(), df.Year.max()+1)
 
     # safety check: if years > 2000 and not site mode
@@ -235,6 +235,7 @@ def get_annual_data(var, landforms, df_frac, cfg,
 
         # place this into yearly list with tuple index value: None 
         df_yrs = [(None, df)]
+        outyears = [0]
 
 
     log.debug("  Total number of data rows in file (annual avg): %d" % len(df))
@@ -299,13 +300,20 @@ def get_annual_data(var, landforms, df_frac, cfg,
             # dimensions order
             full_set_dims = ['time', 'time_m', 'month', 'lf_id', 'pft', 'lat', 'lon']
             
+            if cfg.AVG:
+                self.years = [0]
+            
             self.dim_names = []
             self.dim_sizes = []
             self.data = None
             self.data_total = None
-            self.years = years
+            
+            if cfg.AVG:
+                self.years = [0]
+            else:
+                self.years = years
             # special year list for monthly time axis
-            self.yearsm = [item for item in years for i in range(12)]
+            self.yearsm = [item for item in self.years for i in range(12)]
             self.lfids = []
             self.pfts = []
             
@@ -349,7 +357,6 @@ def get_annual_data(var, landforms, df_frac, cfg,
         def add(self, year, jx, ix, values, lf_id=None):
             if cfg.AVG:
                 year_p = 0
-                self.years = [0]
             else:
                 if 'time_m' in self.dim_names:
                     year_p = self.yearsm.index(int(year)) 
@@ -445,7 +452,7 @@ def get_annual_data(var, landforms, df_frac, cfg,
         log.debug("  We have a monthly variable.")
         if not cfg.USE_MONTH_DIM:
             zcoords2 = xr.DataArray( np.linspace(outyears[0], outyears[-1],
-                                                 num=len_outyears*12,
+                                                 num=len(outyears)*12,
                                                  endpoint=False), name='time')
             
             # another time dim
