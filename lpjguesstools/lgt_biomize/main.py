@@ -163,7 +163,7 @@ def main(cfg):
 
     da2 = xr.concat(agg, dim='biome').argmax(dim='biome').where(ds['fraction'].sum(dim='lf_id')>0)
     
-    ds['biome'] = da2
+    ds['biome'] = da2.where(da2 >= 0)
     ds['biome'].attrs['_FillValue'] = NODATA
     ds['biome'].attrs['units'] = 'biome_id'
     
@@ -217,12 +217,13 @@ def main(cfg):
             ele_L.append(e_da2)
 
         da_ele = xr.concat(ele_L, pd.Index( np.arange(100, 30*200+100, 200, dtype=np.int32), name='ele')).astype(np.int32)
-        da_ele.name='biome'
-        da_ele.attrs['units'] = 'biome_id'
-        da_ele.attrs['_FillValue'] = NODATA
+        ds = da_ele.T.to_dataset(name='biome')
+        ds['biome'] = ds['biome'].where(ds['biome'] >= 0) 
+        ds['biome'].attrs['units'] = 'biome_id'
+        ds['biome'].attrs['_FillValue'] = NODATA
 
-        da_ele['ele'] = da_ele['ele'].astype(np.int32)
-        da_ele['ele'].attrs['axis'] = 'X'
-        da_ele['lat'].attrs['axis'] = 'Y'
-        da_ele.T.to_netcdf(cfg.OUTFILE[:-3] + '_biome_latele.nc', format='NETCDF4_CLASSIC')
+        ds['ele'] = ds['ele'].astype(np.int32)
+        ds['ele'].attrs['axis'] = 'X'
+        ds['lat'].attrs['axis'] = 'Y'
+        ds.to_netcdf(cfg.OUTFILE[:-3] + '_biome_latele.nc', format='NETCDF4_CLASSIC')
 
