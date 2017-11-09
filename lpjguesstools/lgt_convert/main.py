@@ -181,7 +181,7 @@ def get_annual_data(var, landforms, df_frac, cfg,
     # limit df to years (either specified years or use last nyears)
     if cfg.LAST_NYEARS is not None:
         max_yr = df.Year.max()
-        years = range(max_yr - (cfg.LAST_NYEARS-1), max_yr+1)
+        cfg['YEARS'] = range(max_yr - (cfg.LAST_NYEARS-1), max_yr+1)
 
     if len(cfg.YEARS) > 0:
         log.debug("  Limiting years")
@@ -221,7 +221,6 @@ def get_annual_data(var, landforms, df_frac, cfg,
     if has_stand(df):
         df.set_index(['Lon','Lat','Year','Stand'], inplace=True)
         df.reset_index(inplace=True)
-        
     if cfg.AVG:
         # average years
         log.debug("  Averaging years over selected timespan.")
@@ -236,13 +235,7 @@ def get_annual_data(var, landforms, df_frac, cfg,
 
         # place this into yearly list with tuple index value: None 
         df_yrs = [(None, df)]
-    else:
-        # split by year for performance considerations
-        df_yrs = []
-        for cnt, yr in enumerate(outyears):
-            yr_mask = df.Year == yr
-            df_yr = df[yr_mask]        
-            df_yrs.append((yr, df_yr))
+
 
     log.debug("  Total number of data rows in file (annual avg): %d" % len(df))
 
@@ -257,6 +250,13 @@ def get_annual_data(var, landforms, df_frac, cfg,
 
     if 'Stand' in df.columns.values and KEEP_LF_DIM == False:
         # if average is requested, do (weighted) average over the year column, too    
+
+        # split by year for performance considerations
+        df_yrs = []
+        for cnt, yr in enumerate(outyears):
+            yr_mask = df.Year == yr
+            df_yr = df[yr_mask]        
+            df_yrs.append((yr, df_yr))
 
         # loop over years
         new_dfs = []
