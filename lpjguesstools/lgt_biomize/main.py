@@ -87,9 +87,16 @@ def main(cfg):
         log.info("Single site mode.")
         log.debug("  attention: file time dim required (no time_m !)")
         time_len = len(da_lai['time'])
-        da_biomes = xr.DataArray(np.ones( (len(lf_ids), time_len) ) * np.nan, 
-                            coords=[da_lai.coords['lf_id'], da_lai.coords['time']],
-                            dims=['lf_id', 'time'], name='biome_lf')
+        if cfg.LIMIT:
+            time_len = len(da_lai['time'][:1500])
+            
+            da_biomes = xr.DataArray(np.ones( (len(lf_ids), time_len) ) * np.nan, 
+                                coords=[da_lai.coords['lf_id'], da_lai.coords['time'][:1500]],
+                                dims=['lf_id', 'time'], name='biome_lf')
+        else:
+            da_biomes = xr.DataArray(np.ones( (len(lf_ids), time_len) ) * np.nan, 
+                                coords=[da_lai.coords['lf_id'], da_lai.coords['time']],
+                                dims=['lf_id', 'time'], name='biome_lf')        
         
         # get coordinate from global attribute
         if ('site_lon' in ds.attrs.keys()) and ('site_lat' in ds.attrs.keys()):
@@ -100,13 +107,22 @@ def main(cfg):
         else:
             log.error('INFILE does not contain global attributes: site_lon/ site_lat.')
             exit(-1)
-    
-        for tx, _year in enumerate(da_lai.coords['time']):
-            if tx % 1000 == 0: print tx
-            for zx, _lf_id in enumerate(lf_ids):
-                if da_frac[zx] > 0:
-                    b = biomizer( da_lai.sel(time=_year, lf_id=_lf_id) )
-                    da_biomes[zx, tx] = b        
+        
+        if cfg.LIMIT:
+            for tx, _year in enumerate(da_lai.coords['time'][:1500]):
+                if tx % 250 == 0: print tx
+                for zx, _lf_id in enumerate(lf_ids):
+                    if da_frac[zx] > 0:
+                        b = biomizer( da_lai.sel(time=_year, lf_id=_lf_id) )
+                        da_biomes[zx, tx] = b        
+        else:
+            for tx, _year in enumerate(da_lai.coords['time']):
+                if tx % 1000 == 0: print tx
+                for zx, _lf_id in enumerate(lf_ids):
+                    if da_frac[zx] > 0:
+                        b = biomizer( da_lai.sel(time=_year, lf_id=_lf_id) )
+                        da_biomes[zx, tx] = b   
+
 
     else:
         # target layout dims: 3D (lf, lat, lon)

@@ -30,6 +30,9 @@ click.Context.get_usage = click.Context.get_help
                     default='CHILE_ES_NEW', show_default=True,
                     help='classification scheme')
 
+@click.option('--limit', is_flag=True, default=False, 
+                    help='limit site mode to 1500 yrs for debugging')
+
 @click.option('--site-mode', '-s', is_flag=True, default=False, 
                     help='apply to single site netCDF file (also no vertical netCDF)')
 
@@ -41,7 +44,7 @@ click.Context.get_usage = click.Context.get_help
 @click.argument('infile', type=click.Path(exists=True))
 @click.argument('outfile')
 
-def cli(classification, site_mode, infile, outfile, verbose):
+def cli(classification, limit, site_mode, infile, outfile, verbose):
     """LPJ-GUESS 4.0 subpixel mode biomization tool
     
     This tools creates biomization netCDF file(s)
@@ -59,6 +62,7 @@ def cli(classification, site_mode, infile, outfile, verbose):
     config_data=dict(INFILE=infile,
                      OUTFILE=outfile,
                      SMODE=site_mode,
+                     LIMIT=limit,
                      CLASSIFICATION=classification)
     
     # TODO: change logging level based on verbose flag
