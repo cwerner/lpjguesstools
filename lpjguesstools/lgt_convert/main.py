@@ -36,7 +36,7 @@ def is_monthly(df):
 def is_pft(df):
     """Check if df is a per-pft dataframe."""
     col_names = df.columns.values
-    return (('Total' in col_names) and ('C3G' in col_names))
+    return 'Total' in col_names
 
 def has_stand(df):
     """Check if df is a subpixel dataframe."""
