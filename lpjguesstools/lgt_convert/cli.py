@@ -16,7 +16,8 @@ class Bunch(object):
     """Simple data storage class."""
     def __init__(self, adict):
         self.__dict__.update(adict)
-
+    def overwrite(self, adict):
+        self.__dict__.update(adict)
 
 
 # command line arguments
@@ -95,6 +96,10 @@ def cli(avg, config, last_nyears, use_month_dim, refinfo, smode, storeconfig, ye
  
     if smode and (use_month_dim == False):
          log.warn("Site mode requires the use of a monthly dim (-m). Proceeding.")
+         use_month_dim = True
+ 
+    if avg and (use_month_dim == False):
+         log.warn("Average mode requires the use of a monthly dim (-m). Proceeding.")
          use_month_dim = True
  
     # the setup dictionary to convert into a bunch obj

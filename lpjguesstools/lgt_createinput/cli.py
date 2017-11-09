@@ -16,7 +16,8 @@ class Bunch(object):
     """Simple data storage class."""
     def __init__(self, adict):
         self.__dict__.update(adict)
- 
+    def overwrite(self, adict):
+        self.__dict__.update(adict)
 
 # command line arguments
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
