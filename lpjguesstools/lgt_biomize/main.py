@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import os
+import pickle
 import sys
-
 #from .cli import cli
 #from .extra import set_config, get_config, parse_config #, RefDataBuilder
 
@@ -30,6 +30,13 @@ def enum(*sequential, **named):
     enums['reverse_mapping'] = reverse
     return type('Enum', (), enums)
 
+
+def clean_dataset(ds):
+    """Remove chuncksizes from dataset to prevent to_netcdf fail if
+    dimensions were altered."""
+    for var in ds.variables.values():
+        if 'chunksizes' in var.encoding:
+            del var.encoding['chunksizes']
 
 
 class Biomization( object ):
@@ -168,9 +175,15 @@ def main(cfg):
     ds['biome'].attrs['units'] = 'biome_id'
     
     # add compression
-    comp = dict(zlib=True, complevel=5)
-    encoding = {var: comp for var in ds.data_vars}
-    ds.to_netcdf(cfg.OUTFILE[:-3] + '_biome.nc', format='NETCDF4_CLASSIC', encoding=encoding)
+    #comp = dict(zlib=True, complevel=5)
+    #encoding = {var: comp for var in ds.data_vars}
+    try:
+        ds = clean_dataset(ds)
+        ds.to_netcdf(cfg.OUTFILE[:-3] + '_biome.nc', format='NETCDF4_CLASSIC') #, encoding=encoding)
+        pickle.dumps(ds, open(cfg.OUTFILE[:-3] + '_biome.pkl', "wb" ), protocol=-1 )
+    except:
+        print "Unexpected error:", sys.exc_info()[0]
+        pickle.dumps(ds, open(cfg.OUTFILE[:-3] + '_biome.pkl', "wb" ), protocol=-1 )
 
     # --- section 2 ---
     # aggregate to elevation levels
