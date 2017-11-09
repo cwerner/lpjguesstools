@@ -166,8 +166,11 @@ def main(cfg):
     ds['biome'] = da2
     ds['biome'].attrs['_FillValue'] = NODATA
     ds['biome'].attrs['units'] = 'biome_id'
-
-    ds.to_netcdf(cfg.OUTFILE[:-3] + '_biome.nc', format='NETCDF4_CLASSIC')
+    
+    # add compression
+    comp = dict(zlib=True, complevel=5)
+    encoding = {var: comp for var in ds.data_vars}
+    ds.to_netcdf(cfg.OUTFILE[:-3] + '_biome.nc', format='NETCDF4_CLASSIC', encoding=encoding)
 
     # --- section 2 ---
     # aggregate to elevation levels
@@ -216,6 +219,7 @@ def main(cfg):
         da_ele = xr.concat(ele_L, pd.Index( np.arange(100, 30*200+100, 200, dtype=np.int32), name='ele')).astype(np.int32)
         da_ele.name='biome'
         da_ele.attrs['units'] = 'biome_id'
+        da_ele.attrs['_FillValue'] = NODATA
 
         da_ele['ele'] = da_ele['ele'].astype(np.int32)
         da_ele['ele'].attrs['axis'] = 'X'
