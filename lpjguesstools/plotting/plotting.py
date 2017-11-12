@@ -55,6 +55,39 @@ def get_country_outline(country_name):
     return country_outline
 
 
+def check_data_limits(mc, var, kwargs):
+    """Determine joined vmin, vmax values for MapContainer
+    """
+    VMIN = min([x.data[var].min() for x in mc])
+    VMAX = max([x.data[var].max() for x in mc])
+
+    if 'center' in kwargs.keys():
+        if abs(VMIN) < abs(VMAX):
+            if 'vmin' not in kwargs.keys():
+                kwargs['vmin'] = -VMAX             
+        else:
+            if 'vmin' not in kwargs.keys():
+                kwargs['vmin'] = VMIN
+        if 'vmax' in kwargs.keys():
+            kwargs['vmin'] = -kwargs['vmax']
+            del kwargs['vmax'] 
+    else:
+        if 'vmin' not in kwargs.keys():
+            kwargs['vmin'] = VMIN
+        if 'vmax' not in kwargs.keys():
+            kwargs['vmax'] = VMAX
+
+    if 'center' not in kwargs.keys():
+        # check valid vmin/ vmax
+        if kwargs['vmin'] > kwargs['vmax']:
+            print 'Specified vmin > vmax (using vmin, vmax from data)'
+            kwargs['vmin'] = VMIN
+            kwargs['vmax'] = VMAX
+
+    return kwargs
+
+
+
 def drawmap(ax, orientation=None, country=None, name=None, **kwargs):
     """Draw map decorations
     """
@@ -115,8 +148,8 @@ def drawmap(ax, orientation=None, country=None, name=None, **kwargs):
 
     gl.xformatter = LONGITUDE_FORMATTER
     gl.yformatter = LATITUDE_FORMATTER    
-    gl.xlabel_style = {'size': 12, 'color': fg_color}
-    gl.ylabel_style = {'size': 12, 'color': fg_color}
+    gl.xlabel_style = {'size': 10, 'color': fg_color}
+    gl.ylabel_style = {'size': 10, 'color': fg_color}
 
     # panel label
     if name:
@@ -202,12 +235,6 @@ class MapContainer( Sequence ):
     def add(self, ix, data):
         self.map[ix].data = data
 
-
-    def _get_joined_limits(self, var):
-        min_val = min([x.data[var].min() for x in self.map])
-        max_val = max([x.data[var].max() for x in self.map])
-        return (min_val, max_val)
-
     def to_file(self, filename, dpi=None):
         if dpi:
             self.fig.savefig(filename, bbox_inches='tight', dpi=dpi)
@@ -218,10 +245,12 @@ class MapContainer( Sequence ):
     def plot_data(self, variable='', **kwargs):
         # joined limits
 
-        VMIN, VMAX = self._get_joined_limits(variable)
+        kwargs = check_data_limits(self.map, variable, kwargs)
+        # get joined data limits
+        
         for i in range(len(self.map)):
-            p = self.map[i].data[variable].plot(ax=self.map[i].ax, zorder=1000, vmin=VMIN, vmax=VMAX, 
-                    add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
+            p = self.map[i].data[variable].plot(ax=self.map[i].ax, zorder=1000, 
+                        add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
             self._plots.append(p)
 
 
