@@ -225,10 +225,12 @@ class MapContainer( Sequence ):
         
         if self.nrows_ncols[0] == 1:
             # one row only, all xlabels
+            left_ids = [0]
             bottom_ids = range(len(self.axes))
         elif self.nrows_ncols[1] == 1:
             # one column only, all ylabels
             left_ids = range(len(self.axes))
+            bottom_ids = range(len(self.axes))[-1:]
         else:
             # identify left and bottom axis in multi row, col
             n = self.nrows_ncols[1]
