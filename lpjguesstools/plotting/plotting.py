@@ -55,7 +55,7 @@ def get_country_outline(country_name):
     return country_outline
 
 
-def drawmap(ax, orientation=None, country=None, name=None):
+def drawmap(ax, orientation=None, country=None, name=None, **kwargs):
     """Draw map decorations
     """
     
@@ -123,6 +123,22 @@ def drawmap(ax, orientation=None, country=None, name=None):
         ax.annotate(name, xy=(0, 1), xycoords='axes fraction', fontsize=12,
             xytext=(5, -5), textcoords='offset points', ha='left', va='top', zorder=10000,
             bbox={'facecolor':'white', 'alpha':1, 'pad':5}, clip_on=True)
+
+
+def draw_locations(ax, locations, label_locations=False):
+    for location, args in locations.iteritems():
+
+        ax.scatter(args['lon'], args['lat'], facecolor='black', edgecolor='black', 
+                   s=25, lw=.5, zorder=10000)
+
+        if label_locations:
+            ax.annotate(location, (args['lon'] + .75, args['lat']),
+                        horizontalalignment=args['just'],
+                        verticalalignment=args['vert'], 
+                        bbox={'boxstyle': 'square', 'fc':'w', 'ec':'k'}, 
+                        zorder=10001,
+                        fontsize=8,
+                        clip_on=True)
 
 
 class MapContainer( Sequence ):
@@ -234,8 +250,12 @@ class Map( object ):
     def __dir__(self):
         self.ax.__dir__() + ['drawmap']
 
-    def drawmap(self, orientation=None, country=None):
-        drawmap(self.ax, name=self.name, orientation=orientation, country=country)
+    def drawmap(self, orientation=None, country=None, locations=None, **kwargs):
+        drawmap(self.ax, name=self.name, orientation=orientation, country=country, **kwargs)
+
+        if locations:
+            draw_locations(self.ax, locations, **kwargs)
+
 
 
 """
