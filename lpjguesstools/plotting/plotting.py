@@ -58,9 +58,13 @@ def get_country_outline(country_name):
 def check_data_limits(mc, var, kwargs):
     """Determine joined vmin, vmax values for MapContainer
     """
-    VMIN = min([x.data[var].min() for x in mc])
-    VMAX = max([x.data[var].max() for x in mc])
-
+    if var:
+        VMIN = min([x.data[var].min() for x in mc])
+        VMAX = max([x.data[var].max() for x in mc])
+    else:
+        VMIN = min([x.data.min() for x in mc])
+        VMAX = max([x.data.max() for x in mc])
+        
     if 'center' in kwargs.keys():
         if abs(VMIN) < abs(VMAX):
             if 'vmin' not in kwargs.keys():
@@ -88,7 +92,8 @@ def check_data_limits(mc, var, kwargs):
 
 
 
-def drawmap(ax, orientation=None, country=None, name=None, **kwargs):
+def drawmap(ax, orientation=None, country=None, name=None, 
+            left_label=True, bottom_label=True, **kwargs):
     """Draw map decorations
     """
     
@@ -138,13 +143,12 @@ def drawmap(ax, orientation=None, country=None, name=None, **kwargs):
     gl.ylocator = mticker.FixedLocator([-60, -50, -40, -30, -20, -10])
     gl.xlabels_top = False
     gl.ylabels_right = False
-
-    if orientation:
-        if orientation == 'vertical':
-            gl.xlabels_bottom = False
-        elif orientation == 'horizontal':
-            gl.ylabels_left = False
-
+    gl.xlabels_bottom = False
+    gl.ylabels_left = False
+    if left_label:
+        gl.ylabels_left = True
+    if bottom_label:
+        gl.xlabels_bottom = True
 
     gl.xformatter = LONGITUDE_FORMATTER
     gl.yformatter = LATITUDE_FORMATTER    
@@ -183,18 +187,25 @@ class MapContainer( Sequence ):
     default_legend_position = 'right'
     default_names = ['untitled']
 
-    def __init__(self, names=None, orientation=None, figsize=None, **kwargs):
+    def __init__(self, names=None, orientation=None, figsize=None, nrows_ncols=None, **kwargs):
         self.orientation = orientation if orientation else self.default_orientation
         self.names = names if names else self.default_names
         self.figsize = figsize if figsize else self.default_figsize
         projection = ccrs.PlateCarree()
         axes_class = (GeoAxes, dict(map_projection=projection))
 
+        if self.orientation == 'horizontal':
+            simple_nrows_ncols = (1, len(names))
+        else:
+            simple_nrows_ncols = (len(names), 1)
+        self.nrows_ncols = nrows_ncols if nrows_ncols else simple_nrows_ncols
+
         self.fig = plt.figure(figsize=self.figsize)
         self.axes = AxesGrid(self.fig, 111, axes_class=axes_class,
-                             nrows_ncols=(1, len(self.names)),
+                             nrows_ncols=self.nrows_ncols,
                              axes_pad = 0.2,
-                             share_all=True,
+                             ngrids=len(self.names),
+                             #share_all=True,
                              label_mode = "",
                              cbar_location = "right",
                              cbar_mode="single",
@@ -204,28 +215,37 @@ class MapContainer( Sequence ):
         self._plots = []
         self.map = []
 
-        for i, ax in enumerate(self.axes):
-            m_ = Map(ax=ax, name=self.names[i], **kwargs)
+        for i in range(len(self.names)):
+            m_ = Map(ax=self.axes[i], name=self.names[i], **kwargs)
             self.map.append( m_ )
 
         # handle labels in multi-plots
-        if self.orientation == 'horizontal':
-            self.map[0].drawmap(**kwargs)
-            if len(self.map) > 1:
-                for i in range(1, len(self.map)):
-                    self.map[i].drawmap(orientation=self.orientation, **kwargs)
-        elif self.orientation == 'vertical':
-            if len(self.map) > 1:
-                for i in range(len(self.map)-1):
-                    self.map[i].drawmap(orientation=self.orientation, **kwargs)
-            self.map[-1].drawmap(**kwargs)
-        else:
-             for i in range(len(self.map)):
-                self.map[i].drawmap(**kwargs)
+        bottom_ids = []
+        left_ids = []
         
-        # init abc
-        #super().__init__()
-
+        if self.nrows_ncols[0] == 1:
+            # one row only, all xlabels
+            bottom_ids = range(len(self.axes))
+        elif self.nrows_ncols[1] == 1:
+            # one column only, all ylabels
+            left_ids = range(len(self.axes))
+        else:
+            # identify left and bottom axis in multi row, col
+            n = self.nrows_ncols[1]
+            ids = range(len(self.names))
+            ids_2d = [ids[i:i+n] for i in xrange(0, len(ids), n)]
+            left_ids = [x[0] for x in ids_2d]
+            bottom_ids = ids_2d[-1]
+        
+        for i, ax in enumerate(self.axes):
+            left_label=True
+            bottom_label=True
+            if i not in left_ids:
+                left_label=False
+            if i not in bottom_ids:
+                bottom_label=False
+            self.map[i].drawmap(left_label=left_label, bottom_label=bottom_label, **kwargs)
+        
     def __getitem__(self, i):
         return self.map[i]
     
@@ -249,7 +269,11 @@ class MapContainer( Sequence ):
         # get joined data limits
         
         for i in range(len(self.map)):
-            p = self.map[i].data[variable].plot(ax=self.map[i].ax, zorder=1000, 
+            if variable:
+                data = self.map[i].data[variable]
+            else:                 
+                data = self.map[i].data            
+            p = data.plot(ax=self.map[i].ax, zorder=1000, 
                         add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
             self._plots.append(p)
 
@@ -279,36 +303,9 @@ class Map( object ):
     def __dir__(self):
         self.ax.__dir__() + ['drawmap']
 
-    def drawmap(self, orientation=None, country=None, locations=None, **kwargs):
-        drawmap(self.ax, name=self.name, orientation=orientation, country=country, **kwargs)
+    def drawmap(self, country=None, locations=None, left_label=True, bottom_label=True, **kwargs):
+        drawmap(self.ax, name=self.name, country=country, 
+                left_label=left_label, bottom_label=bottom_label, **kwargs)
 
         if locations:
             draw_locations(self.ax, locations, **kwargs)
-
-
-
-"""
-if __name__ == '__main__':
-
-    LVL = [-20, -10,-5,-1.5,1.5, 5, 10, 15, 20]
-    data1 = xr.open_dataset('../../2017-11-07/data.nstd4_000_avg.nc').mean(dim='month', skipna=False)
-    data2 = xr.open_dataset('../../2017-11-07/data.nstd4_155_avg.nc').mean(dim='month', skipna=False)
-    data3 = xr.open_dataset('../../2017-11-07/data.nstd4_220_avg.nc').mean(dim='month', skipna=False)
-
-    data_list = [data1, data2, data3]
-
-    # create container
-    
-    mc = MapContainer(['LGM', 'MH', 'PD'], orientation='horizontal')
-
-    # add data
-    for i, data in enumerate(data_list):
-        mc.add(i, data)
-
-    # plot data
-    mc.plot_data(variable='sp_mtemp', levels=LVL, cmap='RdBu_r')
-
-    # save
-    plt.savefig('dummy2.png', bbox_inches='tight', dpi=150) 
-"""
-
