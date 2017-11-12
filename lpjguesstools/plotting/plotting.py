@@ -1,3 +1,5 @@
+from collections import Sequence
+
 import numpy as np
 import xarray as xr
 
@@ -52,21 +54,23 @@ CLgeo = [country.geometry for country in countries if country.attributes['adm0_a
 
 
 
-class MapContainer( object ):
+class MapContainer( Sequence ):
     """Map Container class
     """
 
+    default_figsize = (7,7)
     default_orientation = 'horizontal'
     default_legend_position = 'right'
     default_names = ['untitled']
 
-    def __init__(self, names=None, orientation=None, **kwargs):
+    def __init__(self, names=None, orientation=None, figsize=None, **kwargs):
         self.orientation = orientation if orientation else self.default_orientation
         self.names = names if names else self.default_names
+        self.figsize = figsize if figsize else self.default_figsize
         projection = ccrs.PlateCarree()
         axes_class = (GeoAxes, dict(map_projection=projection))
 
-        self.fig = plt.figure(figsize=(7,7))
+        self.fig = plt.figure(figsize=self.figsize)
         self.axes = AxesGrid(self.fig, 111, axes_class=axes_class,
                              nrows_ncols=(1, len(self.names)),
                              axes_pad = 0.2,
@@ -98,6 +102,15 @@ class MapContainer( object ):
         else:
              for i in range(len(self.map)):
                 self.map[i].drawmap()
+        
+        # init abc
+        #super().__init__()
+
+    def __getitem__(self, i):
+        return self.map[i]
+    
+    def __len__(self):
+        return len(self.map)
 
     def add(self, ix, data):
         self.map[ix].data = data
