@@ -55,6 +55,76 @@ def get_country_outline(country_name):
     return country_outline
 
 
+def drawmap(ax, orientation=None, country=None, name=None):
+    """Draw map decorations
+    """
+    
+    country_fill = []
+    country_name = []
+    
+    # only single entries for the moment
+    if country:
+        if type(country) == dict:
+            for k, v in country.iteritems():
+                country_name.append(k)
+                if 'fill' in v.keys():
+                    country_fill.append( v['fill'] )
+                else:
+                    country_fill.append( None )
+        elif type(country) == list:
+            country_name = country
+            country_fill = [None] * len(country)
+        else:
+            country_name = [country]
+            country_fill = [None]
+        country_outline = [get_country_outline(c) for c in country_name]
+
+    # backdrop (ocean, countries)
+    ax.add_feature(ocean)                                    # ocean
+    ax.add_feature(countries, edgecolor='gray', zorder=9998) # country borders
+    
+    # individual country (if given [background with fill])
+    if country:
+        for c, c_fill in zip(country_outline, country_fill):
+            if c_fill:
+                ax.add_geometries(c,  ccrs.PlateCarree(), 
+                    edgecolor='black', facecolor=c_fill)
+                  
+    ax.coastlines(resolution='50m')                 # coastlines
+
+    # overlay country outline (ontop, black outline)
+    if country:
+        for c in country_outline:
+            ax.add_geometries(c,  ccrs.PlateCarree(), 
+                  edgecolor='black', facecolor='none', zorder=9999)
+
+    # gridlines
+    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, 
+                  linestyle='--', linewidth=1, zorder=9999, color='gray')
+    gl.xlocator = mticker.FixedLocator([-80, -75, -70, -65, -60])
+    gl.ylocator = mticker.FixedLocator([-60, -50, -40, -30, -20, -10])
+    gl.xlabels_top = False
+    gl.ylabels_right = False
+
+    if orientation:
+        if orientation == 'vertical':
+            gl.xlabels_bottom = False
+        elif orientation == 'horizontal':
+            gl.ylabels_left = False
+
+
+    gl.xformatter = LONGITUDE_FORMATTER
+    gl.yformatter = LATITUDE_FORMATTER    
+    gl.xlabel_style = {'size': 12, 'color': fg_color}
+    gl.ylabel_style = {'size': 12, 'color': fg_color}
+
+    # panel label
+    if name:
+        ax.annotate(name, xy=(0, 1), xycoords='axes fraction', fontsize=12,
+            xytext=(5, -5), textcoords='offset points', ha='left', va='top', zorder=10000,
+            bbox={'facecolor':'white', 'alpha':1, 'pad':5}, clip_on=True)
+
+
 class MapContainer( Sequence ):
     """Map Container class
     """
@@ -164,82 +234,7 @@ class Map( object ):
         self.ax.__dir__() + ['drawmap']
 
     def drawmap(self, orientation=None, country=None):
-        # add map decorations
-        
-        country_fill = []
-        country_name = []
-        
-        # only single entries for the moment
-        if country:
-            if type(country) == dict:
-                for k, v in country.iteritems():
-                    country_name.append(k)
-                    if 'fill' in v.keys():
-                        country_fill.append( v['fill'] )
-                    else:
-                        country_fill.append( None )
-            elif type(country) == list:
-                country_name = country
-                country_fill = [None] * len(country)
-            else:
-                country_name = [country]
-                country_fill = [None]
-            country_outline = [get_country_outline(c) for c in country_name]
-
-        
-        ax = self.ax
-        
-        # backdrop (ocean, countries)
-        ax.add_feature(ocean)                                    # ocean
-        ax.add_feature(countries, edgecolor='gray', zorder=9998) # country borders
-        
-        # individual country (if given [background with fill])
-        if country:
-            for c, c_fill in zip(country_outline, country_fill):
-                if c_fill:
-                    ax.add_geometries(c,  ccrs.PlateCarree(), 
-                        edgecolor='black', facecolor=c_fill)
-                      
-        ax.coastlines(resolution='50m')                 # coastlines
-
-        # overlay country outline (ontop, black outline)
-        if country:
-            for c in country_outline:
-                ax.add_geometries(c,  ccrs.PlateCarree(), 
-                      edgecolor='black', facecolor='none', zorder=9999)
-
-        # gridlines
-        gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, 
-                      linestyle='--', linewidth=1, zorder=9999, color='gray')
-        gl.xlocator = mticker.FixedLocator([-80, -75, -70, -65, -60])
-        gl.ylocator = mticker.FixedLocator([-60, -50, -40, -30, -20, -10])
-        gl.xlabels_top = False
-        gl.ylabels_right = False
-
-        if orientation:
-            if orientation == 'vertical':
-                gl.xlabels_bottom = False
-            elif orientation == 'horizontal':
-                gl.ylabels_left = False
-
-
-        gl.xformatter = LONGITUDE_FORMATTER
-        gl.yformatter = LATITUDE_FORMATTER    
-        gl.xlabel_style = {'size': 12, 'color': fg_color}
-        gl.ylabel_style = {'size': 12, 'color': fg_color}
-
-        # panel label
-        if self.name:
-            ax.annotate(self.name, xy=(0, 1), xycoords='axes fraction', fontsize=12,
-                xytext=(5, -5), textcoords='offset points', ha='left', va='top', zorder=10000,
-                bbox={'facecolor':'white', 'alpha':1, 'pad':5}, clip_on=True)
-
-        # add name label
-
-    def plot_data(self, variable='', **kwargs):
-        variable = variable if variable else data.variables[-1]
-        self.data[variable].plot(ax=self.ax, zorder=1000, add_colorbar=False, **kwargs)
-        #return plot_data(self.ax, data, **kwargs)
+        drawmap(self.ax, name=self.name, orientation=orientation, country=country)
 
 
 """
