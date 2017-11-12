@@ -23,14 +23,8 @@ __all__ = ['Map', 'MapContainer']
 
 fg_color = 'black'
 
-# Create a feature for States/Admin 1 regions at 1:50m from Natural Earth
-countries = cfeature.NaturalEarthFeature(
-    category='cultural',
-    name='admin_0_countries',
-    scale='50m',
-    facecolor='none')
 
-countriesX = cfeature.NaturalEarthFeature(
+countries = cfeature.NaturalEarthFeature(
     category='cultural',
     name='admin_0_countries',
     scale='50m',
@@ -43,15 +37,22 @@ ocean = cfeature.NaturalEarthFeature(
         edgecolor='face',
         facecolor=cfeature.COLORS['water'])
 
-shpfilename = shpreader.natural_earth(resolution='50m',
+
+def get_country_outline(country_name):
+    """Return the country border polygone
+    """
+
+    shpfilename = shpreader.natural_earth(resolution='50m',
                                       category='cultural',
                                       name='admin_0_countries')
-reader = shpreader.Reader(shpfilename)
-countries = reader.records()
+    reader = shpreader.Reader(shpfilename)
+    countries = reader.records()
 
-# get vietnam outline
-CLgeo = [country.geometry for country in countries if country.attributes['adm0_a3'] == 'CHL']
-
+    country_outline = [c.geometry for c in countries if c.attributes['adm0_a3'] == country_name]
+    
+    if len(country_outline) > 1:
+        return country_outline[0]
+    return country_outline
 
 
 class MapContainer( Sequence ):
@@ -90,18 +91,18 @@ class MapContainer( Sequence ):
 
         # handle labels in multi-plots
         if self.orientation == 'horizontal':
-            self.map[0].drawmap()
+            self.map[0].drawmap(**kwargs)
             if len(self.map) > 1:
                 for i in range(1, len(self.map)):
-                    self.map[i].drawmap(orientation=self.orientation)
+                    self.map[i].drawmap(orientation=self.orientation, **kwargs)
         elif self.orientation == 'vertical':
             if len(self.map) > 1:
                 for i in range(len(self.map)-1):
-                    self.map[i].drawmap(orientation=self.orientation)
-            self.map[-1].drawmap()
+                    self.map[i].drawmap(orientation=self.orientation, **kwargs)
+            self.map[-1].drawmap(**kwargs)
         else:
              for i in range(len(self.map)):
-                self.map[i].drawmap()
+                self.map[i].drawmap(**kwargs)
         
         # init abc
         #super().__init__()
@@ -154,7 +155,7 @@ class Map( object ):
         self.ax.set_extent(self.extent)
 
         if drawmap:
-            self.drawmap()
+            self.drawmap(**kwargs)
 
     def __getattr__(self, item):
         return getattr(self.ax, item)
@@ -162,19 +163,52 @@ class Map( object ):
     def __dir__(self):
         self.ax.__dir__() + ['drawmap']
 
-    def drawmap(self, orientation=None):
+    def drawmap(self, orientation=None, country=None):
         # add map decorations
+        
+        country_fill = []
+        country_name = []
+        
+        # only single entries for the moment
+        if country:
+            if type(country) == dict:
+                for k, v in country.iteritems():
+                    country_name.append(k)
+                    if 'fill' in v.keys():
+                        country_fill.append( v['fill'] )
+                    else:
+                        country_fill.append( None )
+            elif type(country) == list:
+                country_name = country
+                country_fill = [None] * len(country)
+            else:
+                country_name = [country]
+                country_fill = [None]
+            country_outline = [get_country_outline(c) for c in country_name]
+
+        
         ax = self.ax
-        ax.add_feature(ocean)                           # ocean
-        ax.add_feature(countriesX, edgecolor='gray', zorder=9998)    # country borders
-        ax.add_geometries(CLgeo[0],  ccrs.PlateCarree(), 
-                      edgecolor='black', facecolor='#FFEECC')
+        
+        # backdrop (ocean, countries)
+        ax.add_feature(ocean)                                    # ocean
+        ax.add_feature(countries, edgecolor='gray', zorder=9998) # country borders
+        
+        # individual country (if given [background with fill])
+        if country:
+            for c, c_fill in zip(country_outline, country_fill):
+                if c_fill:
+                    ax.add_geometries(c,  ccrs.PlateCarree(), 
+                        edgecolor='black', facecolor=c_fill)
+                      
         ax.coastlines(resolution='50m')                 # coastlines
 
-        # overlay country outline (ontop)
-        ax.add_geometries(CLgeo[0],  ccrs.PlateCarree(), 
+        # overlay country outline (ontop, black outline)
+        if country:
+            for c in country_outline:
+                ax.add_geometries(c,  ccrs.PlateCarree(), 
                       edgecolor='black', facecolor='none', zorder=9999)
 
+        # gridlines
         gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, 
                       linestyle='--', linewidth=1, zorder=9999, color='gray')
         gl.xlocator = mticker.FixedLocator([-80, -75, -70, -65, -60])
@@ -194,6 +228,7 @@ class Map( object ):
         gl.xlabel_style = {'size': 12, 'color': fg_color}
         gl.ylabel_style = {'size': 12, 'color': fg_color}
 
+        # panel label
         if self.name:
             ax.annotate(self.name, xy=(0, 1), xycoords='axes fraction', fontsize=12,
                 xytext=(5, -5), textcoords='offset points', ha='left', va='top', zorder=10000,
