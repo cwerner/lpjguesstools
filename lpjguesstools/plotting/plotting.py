@@ -162,7 +162,7 @@ def drawmap(ax, orientation=None, country=None, name=None,
             bbox={'facecolor':'white', 'alpha':1, 'pad':5}, clip_on=True)
 
 
-def draw_locations(ax, locations, label_locations=False):
+def draw_locations(ax, locations, label_locations=False, **kwargs):
     for location, args in locations.iteritems():
 
         ax.scatter(args['lon'], args['lat'], facecolor='black', edgecolor='black', 
@@ -309,3 +309,7 @@ class Map( object ):
 
         if locations:
             draw_locations(self.ax, locations, **kwargs)
+    
+    def drawlocations(self, locations, **kwargs):
+            draw_locations(self.ax, locations, **kwargs)
+        
