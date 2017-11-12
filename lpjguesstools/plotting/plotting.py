@@ -192,6 +192,12 @@ class MapContainer( Sequence ):
         max_val = max([x.data[var].max() for x in self.map])
         return (min_val, max_val)
 
+    def to_file(self, filename, dpi=None):
+        if dpi:
+            self.fig.savefig(filename, bbox_inches='tight', dpi=dpi)
+        else:
+            self.fig.savefig(filename, bbox_inches='tight')
+
 
     def plot_data(self, variable='', **kwargs):
         # joined limits
@@ -199,13 +205,8 @@ class MapContainer( Sequence ):
         VMIN, VMAX = self._get_joined_limits(variable)
         for i in range(len(self.map)):
             p = self.map[i].data[variable].plot(ax=self.map[i].ax, zorder=1000, vmin=VMIN, vmax=VMAX, 
-                    add_colorbar=False, **kwargs)
+                    add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
             self._plots.append(p)
-
-        self.axes.cbar_axes[0].colorbar(p)
-
-
-
 
 
 class Map( object ):
