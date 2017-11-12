@@ -175,15 +175,16 @@ def main(cfg):
     ds['biome'].attrs['units'] = 'biome_id'
     
     # add compression
-    #comp = dict(zlib=True, complevel=5)
-    #encoding = {var: comp for var in ds.data_vars}
+    comp = dict(zlib=True, complevel=5)
+    encoding = {var: comp for var in ds.data_vars}
+    clean_dataset(ds)
+
     try:
-        ds = clean_dataset(ds)
-        ds.to_netcdf(cfg.OUTFILE[:-3] + '_biome.nc', format='NETCDF4_CLASSIC') #, encoding=encoding)
-        pickle.dumps(ds, open(cfg.OUTFILE[:-3] + '_biome.pkl', "wb" ), protocol=-1 )
+        ds.to_netcdf(cfg.OUTFILE[:-3] + '_biome.nc', format='NETCDF4_CLASSIC', encoding=encoding)
+        pickle.dump(ds, open(cfg.OUTFILE[:-3] + '_biome.pkl', "wb" ), protocol=-1 )
     except:
         print "Unexpected error:", sys.exc_info()[0]
-        pickle.dumps(ds, open(cfg.OUTFILE[:-3] + '_biome.pkl', "wb" ), protocol=-1 )
+        pickle.dump(ds, open(cfg.OUTFILE[:-3] + '_biome.pkl', "wb" ), protocol=-1 )
 
     # --- section 2 ---
     # aggregate to elevation levels
