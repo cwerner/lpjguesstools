@@ -1,188 +1,129 @@
 # -*- coding: utf-8 -*-
-#
-# cli.py
-# ==================
-#
-# Christian Werner
-# christian.werner@senckenberg.de
+"""lgt_createinput.cli: Commandline interpreter for lgt_createinput.py."""
 
-import argparse
-import datetime as dt
+import click
 import logging
-import os
-import pkg_resources
 
-version = pkg_resources.require("lpjguesstools")[0].version
+from main import main
+
+# import constants
+from .. import EPILOG
+
 
 log = logging.getLogger(__name__)
 
+class Bunch(object):
+    """Simple data storage class."""
+    def __init__(self, adict):
+        self.__dict__.update(adict)
+    def overwrite(self, adict):
+        self.__dict__.update(adict)
 
-EPILOG = """
-    Use this tool to create netCDF files based on standard
-    LPJ-GUESS 4 txt output files
+
+# command line arguments
+CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
+click.Context.get_usage = click.Context.get_help
+
+@click.command(context_settings=CONTEXT_SETTINGS, epilog=EPILOG)
+
+@click.option('-a', 'avg', is_flag=True, default=False,
+                    help='average output years (see -y or -l)')
+
+@click.option('-c', 'config', metavar='MYCONF', default=None,
+                    help='use MYCONF file as config')
+
+@click.option('-l', 'last_nyears', type=click.INT, default=None, metavar='NYEARS',
+                    help='use number of years at end of run (alternative to -y)')
+
+@click.option('-m', 'use_month_dim', is_flag=True, default=False, 
+                    help='create extra month dimension <time, month, lat, lon>')
+
+@click.option('-r', 'refinfo', metavar='FILE,VAR', default=None,
+                    help='refdata from (landforms,variable) netCDF file')
+ 
+@click.option('-s', 'smode', is_flag=True, default=False,
+                    help='run in site mode (only single coordinate)')
+
+@click.option('-S', 'storeconfig', is_flag=True, default=False,
+                    help='make passed config (-c) the new default')
+
+@click.option('-y', 'years', metavar="1900-1989", default=[],
+                    help='select range of calendar years (alternative to -l)')
+                    
+@click.option('--verbose', is_flag=True, 
+                    help='increase logging info')
+
+
+@click.version_option()
+
+@click.argument('indir', type=click.Path(exists=True))
+@click.argument('outname') 
+
+def cli(avg, config, last_nyears, use_month_dim, refinfo, smode, storeconfig, years, indir, outname, verbose):
+    """LPJ-GUESS 4.0 subpixel mode netCDF convert tool
+    
+    This tools nonverts default and subpixel mode output from
+    LPJ-GUESS 4.0 .out (or gzipped .out.gz) files and creates
+    a joined netCDF file.
+     
     """
+    
+    # example:
+    #./lgt_createinput.py processed output --dems=srtm1/*.zip --masks=srtm1_shp_mask --extent -76 -56 -66 -16
 
-DESCR = "lgt_convert :: LPJ-GUESS output converter (v%s)\n" % version
+    if verbose:
+        logging.getLogger(__name__).setLevel(logging.DEBUG)
+    else:
+        logging.getLogger(__name__).setLevel(logging.INFO)
 
-
-class VerbosityAction(argparse.Action):
-    """ CustomAction for argparse that increases the log level """
-    def __init__(self, nargs=0, **kw):
-        argparse.Action.__init__(self, nargs=nargs, **kw)
-
-    def __call__(self, parser, namespace, values=None, option_string=None):
-        handlers = logging.getLogger().handlers
-        for handler in handlers:
-            if type(handler) is logging.StreamHandler:
-                handler.setLevel(logging.DEBUG)
-        setattr(namespace, self.dest, True)
-
-
-class RangeAction(argparse.Action):
-    """ CustomAction for argparse to be able to process value range """
-    def __call__(self, parser, namespace, values, option_string=None):
-        s = values.split('-')
-        def is_valid_year_range(s):
-            if len(s) > 2:
-                return False
-            for e in s:
-                try:
-                    _ = int(e)
-                except:
-                    return False
-            if int(s[1]) < int(s[0]):
-                return False
-            return True
-
-        if is_valid_year_range(s):
-            setattr(namespace, self.dest, range(int(s[0]), int(s[-1])+1))
-        else:
-            log.critical('No valid range: %s' % values)
+    if years != []:
+        try:
+            years=[int(x) for x in years.split('-')]
+        except:
+            log.error("Years require format 1990-1999")
             exit(1)
-
-class MultiArgsAction(argparse.Action):
-    """ CustomAction for argparse to be able to process ,-seperated args """
-    def __init__(self, **kw):
-        argparse.Action.__init__(self, **kw)
-        self._nsegs = self.const     # misuse of const to carry len(segs)
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        s = values.split(',')
-        if len(s) == self._nsegs:
-            setattr(namespace, self.dest, tuple(s))
-        elif len(s) == 1:
-            setattr(namespace, self.dest, tuple([s[0], None]))
-        else:
-            log.critical("Syntax error in %s" % option_string)
-            exit(1)
-
-
-class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter,
-                      argparse.RawDescriptionHelpFormatter):
-
-    def _get_help_string(self, action):
-        help = action.help
-        if '%(default)' not in action.help:
-            if action.default is not argparse.SUPPRESS:
-                defaulting_nargs = [argparse.OPTIONAL, argparse.ZERO_OR_MORE]
-                if action.option_strings or action.nargs in defaulting_nargs:
-                    if type(action.default)==list:
-                        help += ' (default: %d-%d)' % ( action.default[0], action.default[-1] )
-                    else:
-                        help += ' (default: %(default)s)'
-        return help
-
-
-def cli():
-    """ command line interface """
-
-    DESCR = "lgt_convert :: LPJ-GUESS output converter (v%s)" % version
-
-    GREETING = '\n'.join(['-'*78, DESCR, '-'*78])
-
-    EPILOG  = "Use this tool to create netCDF files based on standard\n"
-    EPILOG += "LPJ-GUESS 4 txt output files\n"
+    
+    if refinfo != None:        
+         if ',' in refinfo:
+             f,v=[x.strip() for x in refinfo.split(',')[0:2]]
+         else:
+             f=refinfo.strip()
+             v=None
+         refinfo=(f,v)
+    else:
+         refinfo=(None,None)
+ 
+ 
+    if smode and (use_month_dim == False):
+         log.warn("Site mode requires the use of a monthly dim (-m). Proceeding.")
+         use_month_dim = True
+ 
+    if avg and (use_month_dim == False):
+         log.warn("Average mode requires the use of a monthly dim (-m). Proceeding.")
+         use_month_dim = True
+ 
+    # the setup dictionary to convert into a bunch obj
+    config_data=dict(AVG=avg,
+                     CONFIG=config,
+                     LAST_NYEARS=last_nyears,
+                     USE_MONTH_DIM=use_month_dim,
+                     REFINFO=refinfo,
+                     SMODE=smode,
+                     STORECONFIG=storeconfig,
+                     YEARS=years,
+                     INDIR=indir,
+                     OUTNAME=outname)
+    
+    # TODO: change logging level based on verbose flag
+    cfg = Bunch(config_data)
 
 
-    parser = argparse.ArgumentParser(description=DESCR,
-                                     epilog=EPILOG,
-                                     formatter_class=CustomFormatter)
-
-    parser.add_argument('indir', help="location of lpjguess txt or txt.gz files")
-    parser.add_argument('outname', help="output netCDF file")
-
-    # TODO: fully implement the avg. functionality
-    parser.add_argument("-a",
-                    dest="avg",
-                    action='store_true',
-                    default=False,
-                    help="average output years (see -y)")
-
-    parser.add_argument("-c",
-                    dest="config",
-                    metavar='MYCONF',
-                    help="use MYCONF file as config (disabled)")
-
-    # TODO: not yet implemented
-    parser.add_argument("-l",
-                    dest="last_nyears",
-                    default=-1,
-                    type=int,
-                    metavar='NYEARS',
-                    help="number of years to use (or specify range with -y)")
-
-    parser.add_argument("-m",
-                    dest="use_month_dim",
-                    default=False,
-                    action='store_true',
-                    help="create extra month dimension <time, month, lat, lon>")
-
-    parser.add_argument("-r",
-                    dest="refinfo",
-                    action=MultiArgsAction,
-                    const=2,
-                    metavar="FILE,VAR",
-                    help="refdata from (landforms, var: fraction) netCDF file")
-
-    parser.add_argument("-S",
-                    dest="storeconfig",
-                    action='store_true',
-                    default=False,
-                    help="make passed config (-c) the new default")
-
-    parser.add_argument("-v",
-                    dest="verbose",
-                    action=VerbosityAction,
-                    default=False,
-                    help="increase output verbosity")
-
-    parser.add_argument("-y",
-                    dest="years",
-                    default=range(1960,1990),
-                    action=RangeAction,
-                    help="range of years to consider")
-
-    # extra subpixel/ landform switches
-    parser.add_argument("--ns",
-                    dest="north_south",
-                    default=False,
-                    action='store_true',
-                    help="create N, S aspect data for landform variables")
-
-    print GREETING
-
-    args = parser.parse_args()
-
-
-    log.debug('-' * 50)
-    log.debug('lgt_convert called at: %s' % dt.datetime.now())
-
-    if args.storeconfig and (args.config is None):
+    if cfg.STORECONFIG and (cfg.CONFIG is None):
         log.critical("Option -S requires that you pass a file with -c.")
         exit(1)
 
-    if args.years != range(1960,1990) and args.last_nyears != -1:
+    if cfg.YEARS != [] and cfg.LAST_NYEARS != -1:
         log.critical("Use either option -y or Option -l.")
         exit(1)
 
-    return (parser, args)
+    main(cfg)
