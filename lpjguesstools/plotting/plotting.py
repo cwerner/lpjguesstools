@@ -262,12 +262,14 @@ class MapContainer( Sequence ):
     default_orientation = 'horizontal'
     default_legend_position = 'right'
     default_names = ['untitled']
+    default_cbar_size = 10
 
     def __init__(self, names=None, orientation=None, figsize=None, 
-                 nrows_ncols=None, spatial=True, **kwargs):
+                 nrows_ncols=None, spatial=True, cbar_size=None, **kwargs):
         self.orientation = orientation if orientation else self.default_orientation
         self.names = names if names else self.default_names
         self.figsize = figsize if figsize else self.default_figsize        
+        self.cbar_size = cbar_size if cbar_size else self.default_cbar_size        
 
         if self.orientation == 'horizontal':
             simple_nrows_ncols = (1, len(names))
@@ -283,7 +285,7 @@ class MapContainer( Sequence ):
                                label_mode = "",
                                cbar_location = "right",
                                cbar_mode="single",
-                               cbar_size='10%',
+                               cbar_size=str(self.cbar_size)+'%',
                                share_all=False)
         if spatial:
             projection = ccrs.PlateCarree()
