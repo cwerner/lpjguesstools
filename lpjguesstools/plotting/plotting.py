@@ -18,7 +18,7 @@ from cartopy.mpl.geoaxes import GeoAxes
 
 
 
-__all__ = ['Map', 'MapContainer']
+__all__ = ['ElevationTransect', 'Map', 'MapContainer']
 
 
 fg_color = 'black'
@@ -92,8 +92,8 @@ def check_data_limits(mc, var, kwargs):
 
 
 
-def drawmap(ax, orientation=None, country=None, name=None, 
-            left_label=True, bottom_label=True, **kwargs):
+def draw_map_layout(ax, orientation=None, country=None, name=None, 
+                    left_label=True, bottom_label=True, **kwargs):
     """Draw map decorations
     """
     
@@ -162,6 +162,35 @@ def drawmap(ax, orientation=None, country=None, name=None,
             bbox={'facecolor':'white', 'alpha':1, 'pad':5}, clip_on=True)
 
 
+def draw_elevationtransect_layout(ax, orientation=None, name=None, 
+                                  left_label=True, bottom_label=True, **kwargs):
+    """Draw map decorations
+    """
+    
+    # gridlines
+    gl = ax.gridlines(draw_labels=True, linestyle='--', linewidth=1,
+                      zorder=9999, color='gray')
+    gl.ylocator = mticker.FixedLocator([-60, -50, -40, -30, -20, -10])
+    gl.xlabels_top = False
+    gl.ylabels_right = False
+    gl.xlabels_bottom = False
+    gl.ylabels_left = False
+    if left_label:
+        gl.ylabels_left = True
+    if bottom_label:
+        gl.xlabels_bottom = True
+
+    gl.yformatter = LATITUDE_FORMATTER    
+    gl.xlabel_style = {'size': 10, 'color': fg_color}
+    gl.ylabel_style = {'size': 10, 'color': fg_color}
+
+    # panel label
+    if name:
+        ax.annotate(name, xy=(0, 1), xycoords='axes fraction', fontsize=12,
+            xytext=(5, -5), textcoords='offset points', ha='left', va='top', zorder=10000,
+            bbox={'facecolor':'white', 'alpha':1, 'pad':5}, clip_on=True)
+
+
 def draw_locations(ax, locations, label_locations=False, **kwargs):
     for location, args in locations.iteritems():
 
@@ -187,12 +216,11 @@ class MapContainer( Sequence ):
     default_legend_position = 'right'
     default_names = ['untitled']
 
-    def __init__(self, names=None, orientation=None, figsize=None, nrows_ncols=None, **kwargs):
+    def __init__(self, names=None, orientation=None, figsize=None, 
+                 nrows_ncols=None, spatial=True, **kwargs):
         self.orientation = orientation if orientation else self.default_orientation
         self.names = names if names else self.default_names
-        self.figsize = figsize if figsize else self.default_figsize
-        projection = ccrs.PlateCarree()
-        axes_class = (GeoAxes, dict(map_projection=projection))
+        self.figsize = figsize if figsize else self.default_figsize        
 
         if self.orientation == 'horizontal':
             simple_nrows_ncols = (1, len(names))
@@ -201,23 +229,30 @@ class MapContainer( Sequence ):
         self.nrows_ncols = nrows_ncols if nrows_ncols else simple_nrows_ncols
 
         self.fig = plt.figure(figsize=self.figsize)
-        self.axes = AxesGrid(self.fig, 111, axes_class=axes_class,
-                             nrows_ncols=self.nrows_ncols,
-                             axes_pad = 0.2,
-                             ngrids=len(self.names),
-                             #share_all=True,
-                             label_mode = "",
-                             cbar_location = "right",
-                             cbar_mode="single",
-                             cbar_size='10%')
 
+        axisgrid_kwargs = dict(nrows_ncols=self.nrows_ncols,
+                               axes_pad = 0.2,
+                               ngrids=len(self.names),
+                               label_mode = "",
+                               cbar_location = "right",
+                               cbar_mode="single",
+                               cbar_size='10%')
+        if spatial:
+            projection = ccrs.PlateCarree()
+            axes_class = (GeoAxes, dict(map_projection=projection))
+            axisgrid_kwargs['axes_class'] = axes_class
+
+        self.axes = AxesGrid(self.fig, 111, **axisgrid_kwargs)
 
         self._plots = []
         self.map = []
 
         for i in range(len(self.names)):
-            m_ = Map(ax=self.axes[i], name=self.names[i], **kwargs)
-            self.map.append( m_ )
+            if spatial:
+                m_ = Map(ax=self.axes[i], name=self.names[i], **kwargs)
+            else:
+                m_ = ElevationTransect(ax=self.axes[i], name=self.names[i], **kwargs)                
+            self.map.append( m_ )                
 
         # handle labels in multi-plots
         bottom_ids = []
@@ -246,7 +281,7 @@ class MapContainer( Sequence ):
                 left_label=False
             if i not in bottom_ids:
                 bottom_label=False
-            self.map[i].drawmap(left_label=left_label, bottom_label=bottom_label, **kwargs)
+            self.map[i].drawlayout(left_label=left_label, bottom_label=bottom_label, **kwargs)
         
     def __getitem__(self, i):
         return self.map[i]
@@ -287,7 +322,7 @@ class Map( object ):
     default_projection = ccrs.PlateCarree()
     default_extent = [-76, -64, -57, -16]
 
-    def __init__(self, ax=None, projection=None, extent=None, data=None, name=None, drawmap=False, **kwargs):
+    def __init__(self, ax=None, projection=None, extent=None, data=None, name=None, drawlayout=False, **kwargs):
         self.projection = projection if projection else self.default_projection
         self.extent = extent if extent else self.default_extent
         self.data = data
@@ -296,8 +331,8 @@ class Map( object ):
         self.ax = ax if ax else plt.axes(projection=self.projection, **kwargs)
         self.ax.set_extent(self.extent)
 
-        if drawmap:
-            self.drawmap(**kwargs)
+        if drawlayout:
+            self.drawlayout(**kwargs)
 
     def __getattr__(self, item):
         return getattr(self.ax, item)
@@ -305,13 +340,36 @@ class Map( object ):
     def __dir__(self):
         self.ax.__dir__() + ['drawmap']
 
-    def drawmap(self, country=None, locations=None, left_label=True, bottom_label=True, **kwargs):
-        drawmap(self.ax, name=self.name, country=country, 
-                left_label=left_label, bottom_label=bottom_label, **kwargs)
+    def drawlayout(self, country=None, locations=None, left_label=True, bottom_label=True, **kwargs):
+        draw_map_layout(self.ax, name=self.name, country=country, 
+                        left_label=left_label, bottom_label=bottom_label, **kwargs)
 
         if locations:
             draw_locations(self.ax, locations, **kwargs)
     
     def drawlocations(self, locations, **kwargs):
             draw_locations(self.ax, locations, **kwargs)
-        
+
+
+class ElevationTransect( object ):
+    """ElevationTransect class
+    """
+    
+    def __init__(self, ax=None, extent=None, data=None, name=None, drawlayout=False, **kwargs):
+        self.data = data
+        self.name = name
+
+        self.ax = ax if ax else plt.axes(**kwargs)
+
+        if drawlayout:
+            self.drawlayout(**kwargs)
+
+    def __getattr__(self, item):
+        return getattr(self.ax, item)
+
+    def __dir__(self):
+        self.ax.__dir__() + ['drawmap']
+
+    def drawlayout(self, left_label=True, bottom_label=True, **kwargs):
+        draw_elevationtransect_layout(self.ax, name=self.name, left_label=left_label,
+                                      bottom_label=bottom_label, **kwargs)
