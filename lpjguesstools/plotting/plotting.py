@@ -200,15 +200,32 @@ def draw_elevationtransect_layout(ax, orientation=None, name=None,
     # gridlines
     gl = ax.grid(which='major', linestyle='--', linewidth=1, zorder=9999, color='gray')
 
+    ax.set_yticks([-60, -50, -40, -30, -20, -10])
+    ax.set_xticks([0, 2000, 4000, 6000])
+
+    def y_fmt(x, y):
+        hemisphere = 'N'
+        if x <= 0:
+            hemisphere = 'S'
+        return '%d %s' % (abs(x), hemisphere)
+
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(y_fmt))
+    ax.set_ylabel(None)
+    ax.set_xlabel(None)
+    
     #gl.ylocator = mticker.FixedLocator([-60, -50, -40, -30, -20, -10])
     #gl.xlabels_top = False
     #gl.ylabels_right = False
     #gl.xlabels_bottom = False
     #gl.ylabels_left = False
-    #if left_label:
-    #    gl.ylabels_left = True
-    #if bottom_label:
-    #    gl.xlabels_bottom = True
+    
+    #print ax, left_label, bottom_label
+    if left_label == False:
+        ax.tick_params(labelleft='off', left='off')
+        #ax.set_yticks([])
+    if bottom_label == False:
+        ax.tick_params(labelbottom='off', bottom='off')  
+    #    ax.set_xticks([])
 
     #gl.yformatter = LATITUDE_FORMATTER    
     #gl.xlabel_style = {'size': 10, 'color': fg_color}
@@ -266,7 +283,8 @@ class MapContainer( Sequence ):
                                label_mode = "",
                                cbar_location = "right",
                                cbar_mode="single",
-                               cbar_size='10%')
+                               cbar_size='10%',
+                               share_all=False)
         if spatial:
             projection = ccrs.PlateCarree()
             axes_class = (GeoAxes, dict(map_projection=projection))
@@ -276,8 +294,6 @@ class MapContainer( Sequence ):
 
         self.axes = AxesGrid(self.fig, 111, **axisgrid_kwargs)
 
-        print self.axes
-
         self._plots = []
         self.map = []
 
@@ -285,7 +301,8 @@ class MapContainer( Sequence ):
             if spatial:
                 m_ = Map(ax=self.axes[i], name=self.names[i], **kwargs)
             else:
-                m_ = ElevationTransect(ax=self.axes[i], name=self.names[i], **kwargs)                
+                m_ = ElevationTransect(ax=self.axes[i], name=self.names[i], **kwargs)
+           
             self.map.append( m_ )                
 
         # handle labels in multi-plots
@@ -315,6 +332,7 @@ class MapContainer( Sequence ):
                 left_label=False
             if i not in bottom_ids:
                 bottom_label=False
+                
             self.map[i].drawlayout(left_label=left_label, bottom_label=bottom_label, **kwargs)
         
     def __getitem__(self, i):
@@ -363,12 +381,12 @@ class MapContainer( Sequence ):
                 data = self.map[i].data[variable]
             else:                 
                 data = self.map[i].data            
-            p = data.plot.contourf(ax=self.map[i].ax, zorder=10000, 
+            p = data.plot.contourf(ax=self.map[i].ax, zorder=1000, 
                         add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
             self._plots.append(p)
             
             # contour lines
-            cs = data.plot.contour(ax=self.map[i].ax, zorder=10000,
+            cs = data.plot.contour(ax=self.map[i].ax, zorder=1000,
                         levels=clevels, colors=('k',),
                         linewidths=(0.5,), add_colorbar=False,
                         linestyles=('dashed',))
@@ -377,10 +395,13 @@ class MapContainer( Sequence ):
             #
             # clabel: %d labels as decimals, %.1f labels as 1-digit float
             #         default is %.2f
-            if 'clabel' in kwargs.keys():
-                clean_contours(cs, style=clabel, zorder=10001)
-            else:
-                clean_contours(cs, zorder=10001)
+            #if 'clabel' in kwargs.keys():
+            #    clean_contours(cs, style=clabel, zorder=1001)
+            #else:
+            #    clean_contours(cs, zorder=1001)
+            #
+            self.map[i].set_xlabel('')
+            self.map[i].set_ylabel('')
 
 
 
