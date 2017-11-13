@@ -38,7 +38,7 @@ ocean = cfeature.NaturalEarthFeature(
         facecolor=cfeature.COLORS['water'])
 
 # reduce clutter in contour labels
-def clean_contours(contours, style='%d'):
+def clean_contours(contours, style='%.2f', zorder=None):
     """Clean the contour labels (max 2 per item)"""
     def path_length(path):
         v = path.vertices
@@ -56,8 +56,13 @@ def clean_contours(contours, style='%d'):
             del paths[2:]
 
     # create labels
-    r = plt.clabel(contours, contours.levels, fmt=style, inline=True, fontsize=8)
-
+    if zorder:
+        r = plt.clabel(contours, contours.levels, fmt=style, 
+                        inline=True, fontsize=8, zorder=zorder)
+    else:
+        r = plt.clabel(contours, contours.levels, fmt=style,
+                        inline=True, fontsize=8)
+        
     # restore all removed paths
     for c, p in deleted_path:
         c.get_paths().append(p)
@@ -193,21 +198,21 @@ def draw_elevationtransect_layout(ax, orientation=None, name=None,
     """
     
     # gridlines
-    gl = ax.gridlines(draw_labels=True, linestyle='--', linewidth=1,
-                      zorder=9999, color='gray')
-    gl.ylocator = mticker.FixedLocator([-60, -50, -40, -30, -20, -10])
-    gl.xlabels_top = False
-    gl.ylabels_right = False
-    gl.xlabels_bottom = False
-    gl.ylabels_left = False
-    if left_label:
-        gl.ylabels_left = True
-    if bottom_label:
-        gl.xlabels_bottom = True
+    gl = ax.grid(which='major', linestyle='--', linewidth=1, zorder=9999, color='gray')
 
-    gl.yformatter = LATITUDE_FORMATTER    
-    gl.xlabel_style = {'size': 10, 'color': fg_color}
-    gl.ylabel_style = {'size': 10, 'color': fg_color}
+    #gl.ylocator = mticker.FixedLocator([-60, -50, -40, -30, -20, -10])
+    #gl.xlabels_top = False
+    #gl.ylabels_right = False
+    #gl.xlabels_bottom = False
+    #gl.ylabels_left = False
+    #if left_label:
+    #    gl.ylabels_left = True
+    #if bottom_label:
+    #    gl.xlabels_bottom = True
+
+    #gl.yformatter = LATITUDE_FORMATTER    
+    #gl.xlabel_style = {'size': 10, 'color': fg_color}
+    #gl.ylabel_style = {'size': 10, 'color': fg_color}
 
     # panel label
     if name:
@@ -266,8 +271,12 @@ class MapContainer( Sequence ):
             projection = ccrs.PlateCarree()
             axes_class = (GeoAxes, dict(map_projection=projection))
             axisgrid_kwargs['axes_class'] = axes_class
+        else:
+            axisgrid_kwargs['aspect'] = False
 
         self.axes = AxesGrid(self.fig, 111, **axisgrid_kwargs)
+
+        print self.axes
 
         self._plots = []
         self.map = []
@@ -338,6 +347,41 @@ class MapContainer( Sequence ):
             p = data.plot(ax=self.map[i].ax, zorder=1000, 
                         add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
             self._plots.append(p)
+    
+    def plot_data_contour(self, variable='', clevels=None, **kwargs):
+        # joined limits
+
+        kwargs = check_data_limits(self.map, variable, kwargs)
+        # get joined data limits
+        
+        # use second set of levels for contour lines, otherwise use same
+        if 'levels' in kwargs.keys():
+            clevels = clevels if clevels else levels
+        
+        for i in range(len(self.map)):
+            if variable:
+                data = self.map[i].data[variable]
+            else:                 
+                data = self.map[i].data            
+            p = data.plot.contourf(ax=self.map[i].ax, zorder=10000, 
+                        add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
+            self._plots.append(p)
+            
+            # contour lines
+            cs = data.plot.contour(ax=self.map[i].ax, zorder=10000,
+                        levels=clevels, colors=('k',),
+                        linewidths=(0.5,), add_colorbar=False,
+                        linestyles=('dashed',))
+
+            # clean labels
+            #
+            # clabel: %d labels as decimals, %.1f labels as 1-digit float
+            #         default is %.2f
+            if 'clabel' in kwargs.keys():
+                clean_contours(cs, style=clabel, zorder=10001)
+            else:
+                clean_contours(cs, zorder=10001)
+
 
 
 class Map( object ):
