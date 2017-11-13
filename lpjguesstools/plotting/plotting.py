@@ -37,6 +37,31 @@ ocean = cfeature.NaturalEarthFeature(
         edgecolor='face',
         facecolor=cfeature.COLORS['water'])
 
+# reduce clutter in contour labels
+def clean_contours(contours, style='%d'):
+    """Clean the contour labels (max 2 per item)"""
+    def path_length(path):
+        v = path.vertices
+        dv = np.diff(v, axis=0)
+        return np.sum(np.sqrt(np.sum(dv**2, axis=-1)))
+
+    # remain the longest path and remove all others
+    deleted_path = []
+    for c in contours.collections:
+        paths = c.get_paths()
+        if len(paths) > 2:
+            paths.sort(key=path_length, reverse=True)
+            for p in paths[2:]:
+                deleted_path.append((c, p))
+            del paths[2:]
+
+    # create labels
+    r = plt.clabel(contours, contours.levels, fmt=style, inline=True, fontsize=8)
+
+    # restore all removed paths
+    for c, p in deleted_path:
+        c.get_paths().append(p)
+
 
 def get_country_outline(country_name):
     """Return the country border polygone
@@ -338,7 +363,7 @@ class Map( object ):
         return getattr(self.ax, item)
 
     def __dir__(self):
-        self.ax.__dir__() + ['drawmap']
+        self.ax.__dir__() + ['drawlayout']
 
     def drawlayout(self, country=None, locations=None, left_label=True, bottom_label=True, **kwargs):
         draw_map_layout(self.ax, name=self.name, country=country, 
@@ -368,7 +393,7 @@ class ElevationTransect( object ):
         return getattr(self.ax, item)
 
     def __dir__(self):
-        self.ax.__dir__() + ['drawmap']
+        self.ax.__dir__() + ['drawlayout']
 
     def drawlayout(self, left_label=True, bottom_label=True, **kwargs):
         draw_elevationtransect_layout(self.ax, name=self.name, left_label=left_label,
