@@ -393,13 +393,43 @@ class MapContainer( Sequence ):
             if variable:
                 data = self.map[i].data[variable]
             else:                 
-                data = self.map[i].data            
-            p = data.plot.contourf(ax=self.map[i].ax, zorder=1000, 
+                data = self.map[i].data
+            
+            # upsample data for contour by 5
+            import scipy.ndimage
+            n = 3   # multiplier (should be odd)
+            lats = data.coords['lat'].values.tolist()
+            eles = data.coords['ele'].values.tolist()
+            step_lat = lats[1] - lats[0]
+            step_ele = eles[1] - eles[0]
+            
+            # this is 0.01 for now (to avail covering everything in zeros)
+            data_min = max(data.to_masked_array().min(), 0.01)
+            # this needs adjusting for larger multipliers
+            
+            def calc_mod(step, n):
+                """Calulate the step modifications"""
+                x = (n-1)/2
+                return (np.arange(-x,x+1)*(step/float(n))).tolist()
+            
+            mod_lat = calc_mod(step_lat, n)
+            mod_ele = calc_mod(step_ele, n)
+            mask = np.ma.getmaskarray(data.to_masked_array()).repeat(n, 1).repeat(n, 0)
+            
+            array_z = scipy.ndimage.zoom(data.to_masked_array().filled(0.0), n)
+            lat_z = np.repeat(lats, n) + np.array(mod_lat * len(lats))
+            ele_z = np.repeat(eles, n) + np.array(mod_ele * len(eles))
+            array_z = np.where(array_z < data_min, data_min, array_z)
+            array_zm = np.ma.array(array_z, mask=mask)
+            data_z = xr.DataArray(array_zm, coords=[('lat', lat_z), ('ele', ele_z)], dims=['lat','ele'])
+            
+            
+            p = data_z.plot.contourf(ax=self.map[i].ax, zorder=1000, 
                         add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
             self._plots.append(p)
-            
+
             # contour lines
-            cs = data.plot.contour(ax=self.map[i].ax, zorder=1000,
+            cs = data_z.plot.contour(ax=self.map[i].ax, zorder=1000,
                         levels=clevels, colors=('k',),
                         linewidths=(0.5,), add_colorbar=False,
                         linestyles=('dashed',))
@@ -415,6 +445,8 @@ class MapContainer( Sequence ):
             #
             self.map[i].set_xlabel('')
             self.map[i].set_ylabel('')
+            self.map[i].set_xlim(left=0)
+            
 
 
 
