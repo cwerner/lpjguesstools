@@ -207,7 +207,7 @@ def draw_elevationtransect_layout(ax, orientation=None, name=None,
         hemisphere = 'N'
         if x <= 0:
             hemisphere = 'S'
-        return '%d %s' % (abs(x), hemisphere)
+        return '%d$\degree$%s' % (abs(x), hemisphere)
 
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(y_fmt))
     ax.set_ylabel(None)
@@ -310,6 +310,19 @@ class MapContainer( Sequence ):
         # handle labels in multi-plots
         bottom_ids = []
         left_ids = []
+
+        n = self.nrows_ncols[1]
+        ids = range(len(self.names))
+        ids_2d = [ids[i:i+n] for i in xrange(0, len(ids), n)]
+
+        def label_in_second_last_row(ids_2d):
+            """Identify second-last row ids that need bottom labels"""
+            ids = []
+            if len(ids_2d) > 1:
+                second_last_row = ids_2d[-2]
+                last_row = ids_2d[-1]
+                ids = second_last_row[len(last_row):]
+            return ids
         
         if self.nrows_ncols[0] == 1:
             # one row only, all xlabels
@@ -321,12 +334,10 @@ class MapContainer( Sequence ):
             bottom_ids = range(len(self.axes))[-1:]
         else:
             # identify left and bottom axis in multi row, col
-            n = self.nrows_ncols[1]
-            ids = range(len(self.names))
-            ids_2d = [ids[i:i+n] for i in xrange(0, len(ids), n)]
             left_ids = [x[0] for x in ids_2d]
-            bottom_ids = ids_2d[-1]
+            bottom_ids = ids_2d[-1] + label_in_second_last_row(ids_2d)
         
+
         for i, ax in enumerate(self.axes):
             left_label=True
             bottom_label=True
@@ -334,7 +345,7 @@ class MapContainer( Sequence ):
                 left_label=False
             if i not in bottom_ids:
                 bottom_label=False
-                
+            
             self.map[i].drawlayout(left_label=left_label, bottom_label=bottom_label, **kwargs)
         
     def __getitem__(self, i):
