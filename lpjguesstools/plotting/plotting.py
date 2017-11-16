@@ -374,10 +374,14 @@ class MapContainer( Sequence ):
             if variable:
                 data = self.map[i].data[variable]
             else:                 
-                data = self.map[i].data            
-            p = data.plot(ax=self.map[i].ax, zorder=1000, 
-                        add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
-            self._plots.append(p)
+                data = self.map[i].data
+
+            if np.isnan(data.values).all():
+                self._plots.append(None)
+            else:                        
+                p = data.plot(ax=self.map[i].ax, zorder=1000, 
+                            add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
+                self._plots.append(p)
     
     def plot_data_contour(self, variable='', clevels=None, **kwargs):
         # joined limits
@@ -423,16 +427,19 @@ class MapContainer( Sequence ):
             array_zm = np.ma.array(array_z, mask=mask)
             data_z = xr.DataArray(array_zm, coords=[('lat', lat_z), ('ele', ele_z)], dims=['lat','ele'])
             
-            
-            p = data_z.plot.contourf(ax=self.map[i].ax, zorder=1000, 
+            try:
+                p = data_z.plot.contourf(ax=self.map[i].ax, zorder=1000, 
                         add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
-            self._plots.append(p)
 
-            # contour lines
-            cs = data_z.plot.contour(ax=self.map[i].ax, zorder=1000,
-                        levels=clevels, colors=('k',),
-                        linewidths=(0.5,), add_colorbar=False,
-                        linestyles=('dashed',))
+                # contour lines                
+                cs = data_z.plot.contour(ax=self.map[i].ax, zorder=1000,
+                            levels=clevels, colors=('k',),
+                            linewidths=(0.5,), add_colorbar=False,
+                            linestyles=('dashed',))
+                self._plots.append(p)
+            except:
+                self._plots.append(None)
+
 
             # clean labels
             #
