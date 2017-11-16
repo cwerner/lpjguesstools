@@ -204,6 +204,15 @@ def get_annual_data(var, landforms, df_frac, cfg,
         log.warn("selected. Are you sure you do not want -S (site mode)? This")
         log.warn("will likely crash due to insufficient memory.")
         
+    if var == 'sp_fpc':
+        log.info("Capping to 100% - total")
+        
+        cid_start, cid_end = get_data_column_index(df)
+        col_names = df.columns.values.tolist()
+        a = col_names[cid_start]
+        b = col_names[cid_end]    
+        mask = (df['Total'] > 1)    # all rows that need scaling
+        df.loc[mask,a:'Total'] = df.loc[mask,a:'Total'].mul(1/df['Total'], axis=0)
 
     # calc mean over patches
     if 'Patch' in df.columns.values:
@@ -277,9 +286,10 @@ def get_annual_data(var, landforms, df_frac, cfg,
         df.columns = data_cols
         df.reset_index(inplace=True)
 
+    
     if sel_var == 'FireRT':
-        log.debug("  Back-inverting fire return time")
-        df['FireRT'] = 1.0 / df['FireRT']
+        log.debug("  Fire Return Interval not inverted: do so with 1/FireRT yourself")
+    #    df['FireRT'] = 1.0 / df['FireRT']
 
     log.debug("  Total number of data rows in file (final):    %d" % len(df))
 
@@ -354,7 +364,7 @@ def get_annual_data(var, landforms, df_frac, cfg,
                 self.data_total.attrs['units'] = '-'
                 self.data_total.attrs['_FillValue'] = NODATA
 
-        def add(self, year, jx, ix, values, lf_id=None):
+        def add(self, year, jx, ix, values, lf_id=None, sel_var=None):
             if cfg.AVG:
                 year_p = 0
             else:
@@ -386,12 +396,12 @@ def get_annual_data(var, landforms, df_frac, cfg,
                     else:
                         self.data[year_p:year_p+12, jx, ix] = values
             else:
-                # individual variable: take index 0 (FireRT)
+                # individual variable
                 if 'lf_id' in self.dim_names:
-                    lfid_p = self.lfids.index(lf_id)                     
-                    self.data[year_p, lfid_p, jx, ix] = values[0]
+                    lfid_p = self.lfids.index(lf_id)
+                    self.data[year_p, lfid_p, jx, ix] = values[sel_var]
                 else:
-                    self.data[year_p, jx, ix] = values[0]
+                    self.data[year_p, jx, ix] = values[sel_var]
 
         def fetch(self):
             return self.data, self.data_total
@@ -480,9 +490,9 @@ def get_annual_data(var, landforms, df_frac, cfg,
         else:
             _year = row.Year
         if 'Stand' in row.index:
-            dstore.add(_year, jx, ix, rdata, lf_id=row.Stand)
-        else:
-            dstore.add(_year, jx, ix, rdata)    
+            dstore.add(_year, jx, ix, rdata, lf_id=row.Stand, sel_var=sel_var)
+        else:            
+            dstore.add(_year, jx, ix, rdata, sel_var=sel_var)    
 
     data, data2 = dstore.fetch()
     mask = dstore.mask()
@@ -568,7 +578,6 @@ def main(cfg):
         named_vars={}
         if type(file) == tuple:
             file, named_vars = file
-
         log.debug("Processing file %s ..." % file)
         
         # create two extra sets for north / south differences
