@@ -25,7 +25,7 @@ email: christian.werner@senkenberg.de
 
 from collections import OrderedDict
 import datetime
-import glob 
+import glob
 import logging
 import math
 import numpy as np
@@ -73,8 +73,8 @@ varSoil = {'TOTC': ('soc', 'Soil Organic Carbon', 'soc', 'percent', 0.1),
 
 varLF = {'lfcnt': ('lfcnt', 'Number of landforms', 'lfcnt', '-', 1.0),
          'slope': ('slope', 'Slope', 'slope', 'deg', 1.0),
-         'aspect': ('aspect', 'Aspect', 'aspect', 'deg', 1.0),         
-         'asp_slope': ('asp_slope', 'Aspect-corrected Slope', 'asp_slope', 'deg', 1.0),         
+         'aspect': ('aspect', 'Aspect', 'aspect', 'deg', 1.0),
+         'asp_slope': ('asp_slope', 'Aspect-corrected Slope', 'asp_slope', 'deg', 1.0),
          'fraction': ('fraction', 'Landform Fraction', 'fraction', '1/1', 1.0),
          'elevation': ('elevation', 'Elevation', 'elevation', 'm', 1.0)}
 
@@ -104,11 +104,11 @@ def has_significant_land(ds, min_frac=0.01):
 
 def define_landform_classes(step, limit, TYPE='SIMPLE'):
     """Define the landform classes."""
-    
+
     # Parameters:
     # - step: elevation interval for landform groups (def: 400m )
     # - limit: elevation limit [inclusive, in m]
-    
+
     ele_breaks = [-1000] + range(step, limit, step) + [10000]
     ele_cnt = range(1, len(ele_breaks))
 
@@ -126,7 +126,7 @@ def define_landform_classes(step, limit, TYPE='SIMPLE'):
     #  lower slope                  5*
     #  valley           6           6
     #
-    #  
+    #
     #  aspect:
     #
     #  Name           SIMPLE     WEISS
@@ -135,8 +135,8 @@ def define_landform_classes(step, limit, TYPE='SIMPLE'):
     #  east              2          2
     #  south             3          3
     #  west              4          4
-    
-        
+
+
     if TYPE == 'WEISS':
         lf_set = [10,21,22,23,24,31,32,33,34,40,51,52,53,54,60]
         lf_full_set = []
@@ -159,7 +159,7 @@ def tiles_already_processed(TILESTORE_PATH):
     """Check if the tile exists."""
     existing_tiles = glob.glob(os.path.join(TILESTORE_PATH, '*.nc'))
     #existing_tiles = [os.path.basename(x) for x in glob.glob(glob_string)]
-    
+
     processed_tiles = []
     for existing_tile in existing_tiles:
         with xr.open_dataset(existing_tile) as ds:
@@ -182,7 +182,7 @@ def match_watermask_shpfile(glob_string):
     else:
         log.error("Too many shape files.")
         exit()
-                
+
     # second try: look for zip file
     if found is False:
         shp = glob_string.replace(".shp", ".zip")
@@ -198,19 +198,19 @@ def match_watermask_shpfile(glob_string):
 
 def get_tile_summary(ds, cutoff=0):
     """Compute the fractional cover of the landforms in this tile."""
-    
+
     unique, counts = np.unique(ds['landform_class'].to_masked_array(), return_counts=True)
     counts = np.ma.masked_array(counts, mask=unique.mask)
     unique = np.ma.compressed(unique)
     counts = np.ma.compressed(counts)
     total_valid = float(np.sum(counts))
-    
+
     df = pd.DataFrame({'lf_id': unique.astype('int'), 'cells': counts})
     df['frac'] = (df['cells'] / df['cells'].sum())*100
 
     df = df[df['frac'] >= cutoff]
     df['frac_scaled'] = (df['cells'] / df['cells'].sum())*100
-    
+
     # also get lf-avg of elevation and slope
     df['elevation'] = -1
     df['slope'] = -1
@@ -218,7 +218,7 @@ def get_tile_summary(ds, cutoff=0):
     df['aspect'] = -1
 
     a_lf = ds['landform_class'].to_masked_array()
-    
+
     # average aspect angles
     def avg_aspect(a):
         x = 0
@@ -229,14 +229,14 @@ def get_tile_summary(ds, cutoff=0):
         avg = math.degrees(math.atan2(x, y))
         if avg < 0:
             avg += 360
-        return avg 
-    
-    
+        return avg
+
+
     # calculate the avg. elevation and slope in landforms
     for i, r in df.iterrows():
         ix = a_lf == int(r['lf_id'])
         lf_slope = ds['slope'].values[ix].mean()
-        lf_asp_slope = ds['asp_slope'].values[ix].mean()        
+        lf_asp_slope = ds['asp_slope'].values[ix].mean()
         lf_elevation = ds['elevation'].values[ix].mean()
         lf_aspect = avg_aspect(ds['aspect'].values[ix])
         df.loc[i, 'slope'] = lf_slope
@@ -256,8 +256,8 @@ def tile_files_compatible(files):
         with xr.open_dataset(file) as ds:
             fingerprint = (ds.tile.get('elevation_step'), ds.tile.get('classification'))
         fingerprints.append(fingerprint)
-    
-    # check if elements are equal    
+
+    # check if elements are equal
     if all(x==fingerprints[0] for x in fingerprints):
         # check if there are Nones' in any fingerprint
         if not all(fingerprints):
@@ -290,7 +290,7 @@ def convert_dem_files(cfg, lf_ele_levels):
     """Compute landform units based on elevation, slope, aspect and tpi classes."""
 
     if cfg.SRTMSTORE_PATH is not None:
-        
+
         # if glob_string is a directory, add wildcard for globbing
         glob_string = cfg.SRTMSTORE_PATH
         if os.path.isdir(cfg.SRTMSTORE_PATH):
@@ -302,11 +302,11 @@ def convert_dem_files(cfg, lf_ele_levels):
         for dem_file in dem_files:
             fname = os.path.basename(dem_file)
             fdir  = os.path.dirname(dem_file)
-            
+
             # SRTM1 default nameing convention
             str_lat = fname[:3]
             str_lon = fname[3:7]
-            
+
             # if tiles don't exist process them
             process_tiles = True
             if cfg.OVERWRITE:
@@ -315,13 +315,13 @@ def convert_dem_files(cfg, lf_ele_levels):
                 _, source_name = analyze_filename_dem(fname)
                 if source_name in existing_tiles:
                     process_tiles = False
-            
-            if process_tiles:                        
+
+            if process_tiles:
                 log.info('processing: %s (%s)' % (dem_file, datetime.datetime.now()))
 
                 shp_glob_string = os.path.join(cfg.WATERMASKSTORE_PATH, str_lon + str_lat + '*.shp')
                 matched_shp_file = match_watermask_shpfile(shp_glob_string.lower())
-                
+
                 ds_srtm1 = compute_spatial_dataset(dem_file, fname_shp=matched_shp_file)
                 tiles = split_srtm1_dataset(ds_srtm1)
 
@@ -332,9 +332,9 @@ def convert_dem_files(cfg, lf_ele_levels):
                         log.debug("Valid tile %d in file %s." % (i+1, dem_file))
 
                         classify_aspect(tile)
-                        classify_landform(tile, elevation_levels=lf_ele_levels, TYPE=cfg.CLASSIFICATION)            
+                        classify_landform(tile, elevation_levels=lf_ele_levels, TYPE=cfg.CLASSIFICATION)
                         calculate_asp_slope(tile)
-                        
+
                         # store file in tilestore
                         # get tile center coordinate and name
                         lon, lat = tile.geo.center()
@@ -345,17 +345,17 @@ def convert_dem_files(cfg, lf_ele_levels):
                     else:
                         log.debug("Empty tile %d in file %s ignored." % (i+1, dem_file))
 
-    
+
 @time_dec
 def compute_statistics(cfg):
     """Extract landform statistics from tiles in tilestore."""
     available_tiles = glob.glob(os.path.join(cfg.TILESTORE_PATH, '*.nc'))
-    log.debug('Number of tiles found: %d' % len(available_tiles)) 
+    log.debug('Number of tiles found: %d' % len(available_tiles))
     if len(available_tiles) == 0:
         log.error('No processed tiles available in directory "%s"' % cfg.TILESTORE_PATH)
         exit()
     tiles = sorted(available_tiles)
-    
+
     if not tile_files_compatible(tiles):
         log.error('Tile files in %s are not compatible.' % cfg.TILESTORE_PATH)
         exit()
@@ -368,7 +368,7 @@ def compute_statistics(cfg):
             lf_stats.reset_index(inplace=True)
             number_of_ids = len(lf_stats)
             lon, lat = ds.geo.center()
-            coord_tuple = (round(lon,2),round(lat,2), int(number_of_ids)) 
+            coord_tuple = (round(lon,2),round(lat,2), int(number_of_ids))
             lf_stats['coord'] = pd.Series([coord_tuple for _ in range(len(lf_stats))])
             lf_stats.set_index(['coord', 'lf_id'], inplace=True)
             tiles_stats.append( lf_stats )
@@ -379,7 +379,7 @@ def compute_statistics(cfg):
     elev_lf = create_stats_table(df, 'elevation')
     slope_lf = create_stats_table(df, 'slope')
     asp_slope_lf = create_stats_table(df, 'asp_slope')
-    aspect_lf = create_stats_table(df, 'aspect')    
+    aspect_lf = create_stats_table(df, 'aspect')
     return (frac_lf, elev_lf, slope_lf, asp_slope_lf, aspect_lf)
 
 
@@ -393,7 +393,7 @@ def is_3d(ds, v):
 
 def assign_to_dataarray(data, df, lf_full_set, refdata=False):
     """Place value into correct location of data array."""
-    
+
     if refdata==True:
         data[:] = NODATA
     else:
@@ -418,13 +418,13 @@ def spatialclip_df(df, extent):
 
     if ('lon' not in df.columns) or ('lat' not in df.columns):
         log.warn("SpatialClip: lat/ lon cloumn missing in df.")
-    return df[((df.lon >= lon1) & (df.lon <= lon2)) & 
+    return df[((df.lon >= lon1) & (df.lon <= lon2)) &
               ((df.lat >= lat1) & (df.lat <= lat2))]
 
 
 def build_site_netcdf(soilref, elevref, extent=None):
     """Build the site netcdf file."""
-    
+
     # extent: (x1, y1, x2, y2)
     ds_soil_orig = xr.open_dataset(soilref)
     ds_ele_orig = xr.open_dataset(elevref)
@@ -451,10 +451,10 @@ def build_site_netcdf(soilref, elevref, extent=None):
     # no soil data but elevation: gap-fill wioth neighbors
     missing = np.where((smask == 1) & (emask == 0), 1, 0)
     ix, jx = np.where(missing == 1)
-    
+
     if len(ix) > 0:
         log.debug('Cells with elevation but no soil data [BEFORE GF: %d].' % len(ix))
-        
+
         for i, j in zip(ix, jx):
             for v in soil_vars:
                 if np.isfinite(ds_soil[v][i, j-1]):
@@ -482,17 +482,17 @@ def build_site_netcdf(soilref, elevref, extent=None):
                  'standard_name': varSoil[v][2],
                  'units': varSoil[v][3],
                  'coordinates': "lat lon"}
-                 
+
         da.tile.update_attrs(vattr)
         da.tile.update_encoding(ENCODING)
-         
+
         da[:] = np.ma.masked_where(emask, da.to_masked_array())
         dsout[da.name] = da
 
     # ele var
     da = xr.full_like(da.copy(deep=True), np.nan)
     da.name = 'elevation'
-    vattr = {'name': 'elevation', 'long_name': 'Elevation', 
+    vattr = {'name': 'elevation', 'long_name': 'Elevation',
              'units': 'meters',  'standard_name': 'elevation'}
     da.tile.update_attrs(vattr)
     da.tile.update_encoding(ENCODING)
@@ -505,29 +505,29 @@ def build_site_netcdf(soilref, elevref, extent=None):
 @time_dec
 def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf, aspect_lf, cfg, elevation_levels, refnc=None):
     """Build landform netcdf based on refnc dims and datatables."""
-    
+
     dsout = xr.Dataset()
 
     COORDS = [('lf_id', lf_full_set), ('lat', refnc.lat), ('lon', refnc.lon)]
     SHAPE = tuple([len(x) for _, x in COORDS])
-    
+
     # initiate data arrays
     _blank = np.empty(SHAPE)
-    da_lfcnt = xr.DataArray(_blank.copy()[0,:,:].astype(int), name='lfcnt', 
+    da_lfcnt = xr.DataArray(_blank.copy()[0,:,:].astype(int), name='lfcnt',
                             coords=COORDS[1:])
     da_frac = xr.DataArray(_blank.copy(), name='fraction', coords=COORDS)
     da_slope = xr.DataArray(_blank.copy(), name='slope', coords=COORDS)
     da_asp_slope = xr.DataArray(_blank.copy(), name='asp_slope', coords=COORDS)
     da_elev = xr.DataArray(_blank.copy(), name='elevation', coords=COORDS)
     da_aspect = xr.DataArray(_blank.copy(), name='aspect', coords=COORDS)
-    
+
     # check that landform coordinates are in refnc
     df_extent = [frac_lf.lon.min(), frac_lf.lat.min(), frac_lf.lon.max(), frac_lf.lat.max()]
     log.debug('df_extent: %s' % str(df_extent))
     log.debug('contains: %s' % str(refnc.geo.contains(df_extent)))
-    
+
     if refnc.geo.contains(df_extent) == False:
-        
+
         frac_lf = spatialclip_df(frac_lf, refnc.geo.extent)
         slope_lf = spatialclip_df(slope_lf, refnc.geo.extent)
         asp_slope_lf = spatialclip_df(asp_slope_lf, refnc.geo.extent)
@@ -539,8 +539,8 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf,
     slope_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_slope.csv'), index=False)
     asp_slope_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_asp_slope.csv'), index=False)
     elev_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_elev.csv'), index=False)
-    aspect_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_aspect.csv'), index=False)    
- 
+    aspect_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_aspect.csv'), index=False)
+
     # assign dataframe data to arrays
     da_lfcnt = assign_to_dataarray(da_lfcnt, frac_lf, lf_full_set, refdata=True)
     da_frac = assign_to_dataarray(da_frac, frac_lf, lf_full_set)
@@ -567,7 +567,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf,
                      'coordinates': "lat lon"}
         dsout[v].tile.update_attrs(vattr)
         dsout[v].tile.update_encoding(ENCODING)
-    
+
     dsout['lat'].tile.update_attrs(dict(standard_name='latitude',
                                         long_name='latitude',
                                         units='degrees_north'))
@@ -600,12 +600,12 @@ def build_compressed(ds):
         log.error("Not a valid xr.Dataset (landforms or site only).")
 
     # create id position dataarray
-    da_ids = xr.ones_like(ds[v]) * NODATA 
+    da_ids = xr.ones_like(ds[v]) * NODATA
 
     latL = []
     lonL = []
     d = ds[v].to_masked_array()
-    
+
     # REVIEW: why is 'to_masked_array()'' not working here?
     d = np.ma.masked_where(d == NODATA, d)
 
@@ -620,9 +620,9 @@ def build_compressed(ds):
                 lonL.append(lon)
                 da_ids.loc[lat, lon] = land_id
                 D_ids[(lat, lon)] = land_id
-                land_id += 1 
-    LFIDS = range(land_id)    
-    
+                land_id += 1
+    LFIDS = range(land_id)
+
     # create coordinate variables
     _blank = np.zeros(len(LFIDS))
     lats = xr.DataArray(latL, name='lat', coords=[('land_id', LFIDS)])
@@ -646,7 +646,7 @@ def build_compressed(ds):
     dsout[lats.name] = lats
     dsout[lons.name] = lons
 
-    # walk through variables, get lat/ lon cells' data 
+    # walk through variables, get lat/ lon cells' data
     for v in ds.data_vars:
         if is_3d(ds, v):
             _shape = (len(LFIDS), len(ds[ds[v].dims[0]]))
@@ -656,12 +656,12 @@ def build_compressed(ds):
             COORDS = [('land_id', LFIDS)]
         _blank = np.ones( _shape )
         _da = xr.DataArray(_blank[:], name=v, coords=COORDS)
-        
+
         for lat, lon in zip(latL, lonL):
             land_id = D_ids[(lat, lon)]
             vals = ds[v].sel(lat=lat, lon=lon).to_masked_array()
             _da.loc[land_id] = vals
-        
+
         _da.tile.update_attrs(ds[v].attrs)
         _da.tile.update_encoding(ENCODING)
 
@@ -690,7 +690,7 @@ def mask_dataset(ds, valid):
     return ds
 
 def create_gridlist(ds):
-    """Create LPJ-Guess 4.0 gridlist file."""    
+    """Create LPJ-Guess 4.0 gridlist file."""
     outL = []
     for j in reversed(range(len(ds['land_id']))):
         for i in range(len(ds['land_id'][0])):
@@ -701,18 +701,18 @@ def create_gridlist(ds):
                 land_id = int(ds['land_id'].sel(lat=lat, lon=lon).values)
                 outS = "%3.2f %3.2f %d" % (lat, lon, land_id)
                 outL.append(outS)
-    
+
     return '\n'.join(outL) + '\n'
-    
+
 
 def main(cfg):
-    """Main Script."""    
-    
+    """Main Script."""
+
     # default soil and elevation data (contained in package)
     import pkg_resources
     SOIL_NC      = pkg_resources.resource_filename(__name__, '../data/GLOBAL_WISESOIL_DOM_05deg.nc')
     ELEVATION_NC = pkg_resources.resource_filename(__name__, '../data/GLOBAL_ELEVATION_05deg.nc')
-    
+
     log.info("Converting DEM files and computing landform stats")
 
     # define the final landform classes (now with elevation brackets)
@@ -736,9 +736,9 @@ def main(cfg):
     # build netcdfs
     log.info("Building 2D netCDF files")
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
-    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, df_asp_slope, df_aspect, cfg, 
+    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, df_asp_slope, df_aspect, cfg,
                                        lf_ele_levels, refnc=sitenc)
-    
+
     # clip to joined mask
     #elev_mask = np.where(sitenc['elevation'].values == NODATA, 0, 1)
     #landform_mask = np.where(landformnc['lfcnt'].values == NODATA, 0, 1)
@@ -750,12 +750,19 @@ def main(cfg):
     land_mask = ~np.ma.getmaskarray(landformnc['lfcnt'].to_masked_array())
     valid_mask = elev_mask * sand_mask * land_mask
 
- 
+
     sitenc = mask_dataset(sitenc, valid_mask)
     landformnc = mask_dataset(landformnc, valid_mask)
 
+    landform_mask = np.where(landformnc['lfcnt'].values == -9999, np.nan, 1)
+    #landform_mask = np.where(landform_mask == True, np.nan, 1)
+    print landform_mask
+    for v in sitenc.data_vars:
+        sitenc[v][:] = sitenc[v].values * landform_mask
+
+
     # write 2d/ 3d netcdf files
-    sitenc.to_netcdf(os.path.join(cfg.OUTDIR, 'sites_2d.nc'), 
+    sitenc.to_netcdf(os.path.join(cfg.OUTDIR, 'sites_2d.nc'),
                      format='NETCDF4_CLASSIC')
     landformnc.to_netcdf(os.path.join(cfg.OUTDIR, 'landforms_2d.nc'),
                          format='NETCDF4_CLASSIC')
@@ -764,17 +771,17 @@ def main(cfg):
     log.info("Building compressed format netCDF files")
     ids_2d, comp_sitenc = build_compressed(sitenc)
     ids_2db, comp_landformnc = build_compressed(landformnc)
-    
+
     # write netcdf files
-    ids_2d.to_netcdf(os.path.join(cfg.OUTDIR, "land_ids_2d.nc"), 
+    ids_2d.to_netcdf(os.path.join(cfg.OUTDIR, "land_ids_2d.nc"),
                      format='NETCDF4_CLASSIC')
 
     ids_2db.to_netcdf(os.path.join(cfg.OUTDIR, "land_ids_2db.nc"),
                      format='NETCDF4_CLASSIC')
 
-    comp_landformnc.to_netcdf(os.path.join(cfg.OUTDIR, "landform_data.nc"), 
+    comp_landformnc.to_netcdf(os.path.join(cfg.OUTDIR, "landform_data.nc"),
                               format='NETCDF4_CLASSIC')
-    comp_sitenc.to_netcdf(os.path.join(cfg.OUTDIR, "site_data.nc"), 
+    comp_sitenc.to_netcdf(os.path.join(cfg.OUTDIR, "site_data.nc"),
                           format='NETCDF4_CLASSIC')
 
     # gridlist file
@@ -783,5 +790,3 @@ def main(cfg):
     open(os.path.join(cfg.OUTDIR, cfg.GRIDLIST_TXT), 'w').write(gridlist)
 
     log.info("Done")
-
-
