@@ -25,24 +25,34 @@ def enum(*sequential, **named):
     enums['reverse_mapping'] = reverse
     return type('Enum', (), enums)
 
+# D:     Desert
+# Mat:   matorral/ arid shrubland (disabled)
+# SclW:  Sclerophyllous woodland/ forest (incl. matorral)
+# TDF:   Temperate broadleaved decidious forest
+# MixF:  Mixed forest (leftovers?)
+# NPL:   Nothofagus Parkland (paleo landscape not present today) ???
+# VRF:   Valdivian Rainforest
+# MFW:   Magellanic Forest/ Woodland
+# CDF:   Cool decidious forest
+# T:     Tundra
+# St:    Steppe
+biomes = enum('D', 'ASh', 'Mat', 'SclW', 'TDF', 'MixF', 'NPL', 'VRF', 'MeW', 'MFW', 'T', 'St')
 
-biomes  = enum(# patagonian steppe
-               'PSt',    # cold, grasses low boreal shrubs 000
-               # magellanic forest (cold, shrubs some trees)
-               'MaF',     #= 9,   # BIOME 8 - Grass Tundra 001
-               # temperate rainforest
-               'TeBEF',  # temperate evergreen 002
-               # temperate mixed forest
-               'TeMF',   # mixed, valdivian forest: evergreen + conifers 003
-               # decidious transition zone
-               'TeBS',   # Notofagus parklands 004
-               # sclerophyllous zone
-               'SclWF',  # Sclerophyllous Woodland/ forest 005
-               'Mat',    # Matorral 006
-               # desert zone
-               'AShr',   #= 10,  # BIOME 9 - Arid Shrubland 007
-               'D')      #= 10}) # BIOME 10 - Desert    008
+# Mat='#f0d8b6', 
 
+biome_color = {biomes.D    : '#eae4e6', # 0 
+               biomes.ASh  : '#b889d4', # 1 
+               #biomes.Mat  : '#e29688', # 2
+               biomes.SclW : '#9a8e15', # 3 ok
+               biomes.TDF  : '#87f8e3', # 4 nix
+               biomes.MixF : '#gfe1ac', # 5 wenige
+               biomes.NPL  : '#78201e', # 6 wenige (high-altitude, falsche klasse?, auch uebergang zu wueste!!!)
+               biomes.VRF  : '#7dfc9c', # 7 ok
+               biomes.MeW  : '#ccffff', # 8 nix
+               biomes.MFW  : '#749079', # 9 ok (rel. viel!!!)
+               biomes.T    : '#95a0b5', # 10 zu wenig (!)
+               biomes.St   : '#7b566d', # 11 zu viel
+               biomes.unclassified : '#ff62b9'}
 
 class DataLaiPFT( object ):
     def __init__(self, da_lai, grass=None, shrubs=None, trees=None):
@@ -62,6 +72,8 @@ class DataLaiPFT( object ):
             self.set_shrubs( shrubs )
         if trees is not None:
             self.set_trees( trees )
+
+        self.lai_tot = self.lai_w + self.lai_g
 
 
     def set_trees(self, x):
@@ -134,14 +146,6 @@ class DataLaiPFT( object ):
 def classification(biome, all_pfts, data):
     """EarthShape Custom Biomization"""
 
-    #biome  = enum('TeBEF',  #= 1,   # BIOME 1 - Temperate Broadleaved Evergreen Forest
-    #              'TeMF',   #= 2,   # BIOME 2 - Temperate Mixed Forest
-    #              'SclWF',  #= 3,   # BIOME 3 - Sclerophyllous Woodland/ Forest
-    #              'TeW',    #= 4    Temperate Woodland
-    #              'ArT',    #= 7,   # BIOME 6 - Arctic/alpine Tundra
-    #              'Gr',     #= 9,   # BIOME 8 - Grass Tundra
-    #              'AShr',   #= 10,  # BIOME 9 - Arid Shrubland
-    #              'D')      #= 10}) # BIOME 10 - Desert   
 
     # Categorize PFTs ------------------
 
@@ -151,71 +155,88 @@ def classification(biome, all_pfts, data):
     ShrubPFT = SclShrubPFT + CldShrubPFT    # total shrubs
 
     # Special tree PFT groups
-    tebe_trees = ['TeBE_tm', 'TeBE_itm']    # temperate broadleaf evergreen
+    mesic_tebe_trees  = ['TeBE_itm', 'TeBE_tm'] # scleophyllous trees
+    xeric_tebe_trees  = ['TeBE_itscl', 'TeBE_tscl'] # scleophyllous trees
+    tebe_trees = xeric_tebe_trees + mesic_tebe_trees
+    
+    tebe_woody = tebe_trees + SclShrubPFT
+    
+    boreal_trees = ['BBE_itm','BBS_itm']
     tebs_trees = ['TeBS_tm', 'TeBS_itm']    # temperate decidious (Notofagus)
-    scl_trees  = ['TeBE_itscl', 'TeBE_tscl'] # scleophyllous trees
+        
+    mesic_woody = mesic_tebe_trees + CldShrubPFT + ['TeNE'] + boreal_trees + tebs_trees
+    xeric_woody = xeric_tebe_trees + SclShrubPFT
+    
+    
+    mesic_trees = mesic_tebe_trees + tebs_trees + boreal_trees + ['TeNE']
+        
     # Thresholds
-    FT = 2.5   # forest/woodland threshold
-    WT = 1.0  # woodland/grassland threshold
+    FT = 2.0  # forest/woodland threshold (lai_t)
+    WT = 1.0  # woodland/grassland threshold (lai_w)
 
     # instance of data object
     d = DataLaiPFT( data, grass=['C3G'], shrubs=SclShrubPFT+CldShrubPFT )
 
-
     # Decision tree (new) -------------
-    # temperate rainforest (TeBEF) - a forest, TeBE >30%, TeBE dominate trees
-    if (d.lai_t >= FT and d.fr(tebe_trees) >= 0.3 and d.max_t(tebe_trees)):
-        b = biome.TeBEF   # temperate rainforest
-
-    # temperate mixed forest (TeMF) - a forest, TeBE <30%
-    elif (d.lai_t >= WT and d.fr(tebe_trees) < 0.3 and d.fr(tebs_trees) <= 0.15):
-        b = biome.TeMF   # temperate mixed forest
-
-    # notofagus decidious woodland (TeBS) - a forest/ woodland, TeBS > 30%, TeBS dominante trees
-    elif (d.lai_w >= WT and d.fr(tebe_trees) < 0.3 and d.fr(tebs_trees) > 0.15): # and max_t(tebs_trees)):
-        b = biome.TeBS    # decidious forest (Notofagus)
-
-    # high-altitude forests TeBS dominante trees
-    elif (d.lai_w >= WT * 0.5 and d.fr(scl_trees+SclShrubPFT, woody=True) < 0.5) and d.sum_lai(CldShrubPFT) < 0.3:   # and max_t(tebs_trees)):
-        b = biome.TeMF    # high-alt mixed
-
-    # sclerophyllous (SclWF) - woodland, sclerophyllous PFTs >= 50% of woody, cold shrubs < 0.05 LAI
-    elif (d.lai_w >= WT * 0.5 and d.fr(scl_trees+SclShrubPFT, woody=True) >= 0.5): # and sum_lai(CldShrubPFT) < 0.05:
-        b = biome.SclWF   # sclerophyllous woodland
-
-    # matorral (Mat) - less than a woodland, sclerophyllous PFTs >= 50%
-    elif (d.lai_w < WT * 0.5 and d.fr(scl_trees+SclShrubPFT, woody=True) >= 0.5 and d.lai_w > 0.1) :
-        b = biome.Mat     # matorral
-
-    # high-altitude forests TeBS dominante trees
-    elif (d.lai_w < WT * 0.5 and d.fr(scl_trees+SclShrubPFT, woody=True) < 0.5 and d.lai_w > 0.1) :
-        b = biome.TeMF     # high-alt mixed forest
-
-    # temperate mixed forest/ bogs - a woodland, TeBE >30%, TeBE dominate trees
-    elif (d.lai_w >= WT * 0.5 and d.fr(tebe_trees + CldShrubPFT, woody=True) > 0.75): # and lai_s < 0.2:
-        b = biome.MaF    # magellanic forest, woodland and bog
-
-    # cheat 1: all other woodlands with TeNE go to mixed forest
-    elif (d.lai_w >= WT) and (d.max_t('TeNE') or d.sum_lai(CldShrubPFT) > 0.3):
-        b = biome.TeMF     # high-alt mixed forest
-
-    # cheat 2: all other woodlands are MaF
-    elif (d.lai_w >= WT): 
-        b = biome.MaF    # magellanic forest, woodland and bog
-
-    # patagonian steppe - lai_woody < woodland, lai hrubs < 0.1, cold shrubs > 10% woody, total lai > 0.2
-    elif (d.lai_w < WT and d.fr(CldShrubPFT, woody=True) > 0.5) and d.lai_tot > 0.1:
-        print "PATAGONIAN STEPPE!!!"
-        b = biome.PSt     # B=14
-
-    # arid shrubland
-    elif (d.lai_tot > 0.1): # and lai_w > 0.1):
-        b = biome.AShr    # B=16 (b)
-
-    # desert - total lai < 0.2
-    elif (d.lai_tot <= 0.1):
-        b = biome.D       # B=17
+    # biome_color = {biomes.D    : '#eae4e6', # 0 
+    #                biomes.SclW : '#9a8e15', # 1 ok
+    #                biomes.TDF  : '#87f8e3', # 2 nix
+    #                biomes.MixF : '#gfe1ac', # 3 wenige
+    #                biomes.NPL  : '#78201e', # 4 wenige (high-altitude, falsche klasse?, auch uebergang zu wueste!!!)
+    #            biomes.VRF  : '#7dfc9c', # 5 ok
+    #            biomes.CDF  : '#ccffff', # 6 nix
+    #            biomes.MFW  : '#749079', # 7 ok (rel. viel!!!)
+    #            biomes.T    : '#95a0b5', # 8 zu wenig (!)
+    #            biomes.St   : '#7b566d', # 9 zu viel
+    #            biomes.unclassified : '#ff62b9'}
+    
+    # default: missing
+    b = 99
+    
+    if (d.lai_tot < 0.2):
+        # desert
+        b = biome.D
     else:
-        print 'UNDEFINED'
-        b = 99
+        # forest threshold
+        if (d.lai_t >= FT ):
+            # forests
+            if d.fr(tebe_trees) >= 0.5:
+                # Valdivian Rainforest
+                b = biome.VRF
+            elif d.fr(tebs_trees + ['TeNE']) >= 0.5:
+                # Temperate Broadleaf Decidious Forest
+                b = biome.TDF   # broadleaf decidious forest
+            elif d.fr(boreal_trees) >= 0.5:
+                # Magellanic Forest/ Woodland 
+                b = biome.MFW
+            else:
+                # mixed (check)
+                b = biome.MixF
+        
+        # N. parkland ???
+        elif (d.lai_t >= 0.5 and (d.lai_g / d.lai_tot) > 0.66):
+            b = biome.NPL
+            
+        # woodlands
+        elif d.lai_w > WT:
+            if d.fr(xeric_woody, woody=True) > 0.5:
+                # Sclerophyllous Woodland/ Matorral
+                b = biome.SclW
+            elif d.fr(mesic_woody, woody=True) > 0.5:
+                # Cold Broadleaf Decidious Forest
+                b = biome.MeW # cold decidious forest/ woodland    
+            else:
+                # Tundra
+                b = biome.T
+                
+        # matorral (low shrub)
+        elif d.lai_tot > 0.2 and (d.lai_g / d.lai_tot) < 0.66:
+            b = biome.ASh
+        else:
+            b = biome.St
+            
+            
+    if b == 99:
+        print 'UNCLASSIFIED'
+
     return b
