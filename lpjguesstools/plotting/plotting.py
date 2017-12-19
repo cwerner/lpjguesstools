@@ -16,6 +16,7 @@ import cartopy.io.shapereader as shpreader
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 from cartopy.mpl.geoaxes import GeoAxes
 
+from ..tools import enum
 
 
 __all__ = ['ElevationTransect', 'Map', 'MapContainer']
@@ -382,6 +383,48 @@ class MapContainer( Sequence ):
                 p = data.plot(ax=self.map[i].ax, zorder=1000, 
                             add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
                 self._plots.append(p)
+
+    def plot_data_discrete(self, variable='', **kwargs):
+        # joined limits
+        
+        levels = []
+        colors = []
+    
+        # required arguments: levels, colors 
+        if 'biome' in kwargs.keys():
+            print type(kwargs['biome'])
+            levels = kwargs['biome'].items
+            del kwargs['biome']
+             # get keys from enum
+            
+        if 'color_mapping' in kwargs.keys():
+            for l in levels:
+                print l
+                print kwargs['color_mapping']
+                colors.append(kwargs['color_mapping'][l])
+            del kwargs['color_mapping']
+
+        kwargs = check_data_limits(self.map, variable, kwargs)
+        # get joined data limits
+        
+        for i in range(len(self.map)):
+            if variable:
+                data = self.map[i].data[variable]
+            else:                 
+                data = self.map[i].data
+
+            if np.isnan(data.values).all():
+                self._plots.append(None)
+            else:                        
+                p = data.plot(ax=self.map[i].ax, zorder=1000, 
+                            levels=levels, colors=colors,
+                            add_colorbar=False, **kwargs)
+                self._plots.append(p)
+
+        # create discrete legend
+        # self.axes.cbar_axes[0]
+        self.fig.delaxes(self.axes.cbar_axes[0]) 
+        
     
     def plot_data_contour(self, variable='', clevels=None, **kwargs):
         # joined limits
