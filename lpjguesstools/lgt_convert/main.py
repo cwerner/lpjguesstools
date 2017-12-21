@@ -170,11 +170,23 @@ def get_annual_data(var, landforms, df_frac, cfg,
     except:
         df = pd.read_csv(os.path.join(cfg.INDIR, "%s.out.gz" % var),
             delim_whitespace=True)
+
+    if 'Stand' in df.columns.values:
+        if cfg.DEFAULT:
+            log.info('Selecting only lfid 0 data rows (for now).')
+            df = df[df.Stand == 0]
+            KEEP_LF_DIM = False
+        else:
+            df = df[df.Stand != 0]
     
     # special transformation for FireRT variable
     if sel_var == 'FireRT':
         log.debug("  Inverting fire return time")
         df['FireRT'] = 1.0 / df['FireRT']
+    
+    # add a dummy Total column for identification purposes
+    if var_str == 'height':
+        df['Total'] = 1.
     
     log.debug("  Total number of data rows in file (raw data): %d" % len(df))
 
@@ -192,7 +204,6 @@ def get_annual_data(var, landforms, df_frac, cfg,
         exit(1)
     
     log.debug("  Total number of data rows in file (year sel): %d" % len(df))
-
     # determine z dimension
     #nyears = df.Year.max() - df.Year.min()
     outyears = range(df.Year.min(), df.Year.max()+1)
@@ -224,33 +235,40 @@ def get_annual_data(var, landforms, df_frac, cfg,
     if has_stand(df):
         # fix index before merge
         df.set_index(['Lon','Lat','Stand'], inplace=True)# set index for join
-        df = df.merge(df_frac, left_index=True, right_index=True)
-    
+        
+        # if default (lfid=0), we do not join but give a default fraction
+        if cfg.DEFAULT:
+            print df_frac.head()
+            df['fraction'] = 1
+        else:
+            df = df.merge(df_frac, left_index=True, right_index=True)
+
+    df_yrs = []
+
     df.reset_index(inplace=True)
     if has_stand(df):
         df.set_index(['Lon','Lat','Year','Stand'], inplace=True)
         df.reset_index(inplace=True)
+        
     if cfg.AVG:
         # average years
         log.debug("  Averaging years over selected timespan.")
         if 'Stand' in df.columns.values:
-            #if KEEP_LF_DIM == False:
             groupcols = ['Lon','Lat','Stand']
             df = df.groupby(groupcols).mean().reset_index()
         else:
             groupcols = ['Lon','Lat']
             df = df.groupby(groupcols).mean().reset_index()
         del df['Year']
-
+        df['Year'] = 0
         # place this into yearly list with tuple index value: None 
-        df_yrs = [(None, df)]
+        df_yrs = [(0, df)]
         outyears = [0]
 
 
     log.debug("  Total number of data rows in file (annual avg): %d" % len(df))
 
     data_cols = [c for c in df.columns.values if c not in ['Lat', 'Lon', 'Year', 'Stand']]
-
 
 
     # do the stand/ lf_id avg
@@ -261,8 +279,8 @@ def get_annual_data(var, landforms, df_frac, cfg,
     if 'Stand' in df.columns.values and KEEP_LF_DIM == False:
         # if average is requested, do (weighted) average over the year column, too    
 
-        # split by year for performance considerations
         df_yrs = []
+        # split by year for performance considerations
         for cnt, yr in enumerate(outyears):
             yr_mask = df.Year == yr
             df_yr = df[yr_mask]        
@@ -388,6 +406,9 @@ def get_annual_data(var, landforms, df_frac, cfg,
                     if 'lf_id' in self.dim_names:
                         lfid_p = self.lfids.index(lf_id) 
                         self.data[year_p, :, lfid_p, jx, ix] = values
+                    else:
+                        self.data[year_p, :, jx, ix] = values
+                        
                 elif 'time_m' in self.dim_names:
                     add_p = self.dim_names.index('time_m')
                     if 'lf_id' in self.dim_names:
@@ -484,7 +505,6 @@ def get_annual_data(var, landforms, df_frac, cfg,
         else:
             jx, ix = mapper(row.Lat, row.Lon)
         rdata = row[cid_start: cid_end+1]
-        
         if cfg.AVG:
             _year = 0
         else:
@@ -651,19 +671,26 @@ def main(cfg):
     # add compression
     comp = dict(zlib=True, complevel=5)
     
-    encoding = {var: comp for var in ds.data_vars}
-    ds.to_netcdf(cfg.OUTNAME[:-3] + '_lfid.nc', format='NETCDF4_CLASSIC', unlimited_dims='time', encoding=encoding)
+    if cfg.DEFAULT == False:
+        encoding = {var: comp for var in ds.data_vars}
+        ds.to_netcdf(cfg.OUTNAME[:-3] + '_lfid.nc', format='NETCDF4_CLASSIC', unlimited_dims='time', encoding=encoding)
 
     # create lf average version of file
     dvars = [x for x in ds.data_vars if x not in ['lfcnt', 'fraction']] 
     dsout = xr.Dataset()
+    
+    scaled_fraction = ds['fraction']/ds['fraction'].sum(dim='lf_id')
+    
     for dv in dvars:
-        dsout[dv] = (ds[dv] * (ds['fraction']*0.01)).sum(dim='lf_id').squeeze(drop=True).where(ds['lfcnt']>0)
+        if cfg.DEFAULT == False:
+            dsout[dv] = (ds[dv] * scaled_fraction).sum(dim='lf_id').squeeze(drop=True).where(ds['lfcnt']>0)
+        else:
+            dsout[dv] = (ds[dv]).where(ds['lfcnt']>0)
     
     # add site_lat, site_lon to file
     if cfg.SMODE:
-        ds.attrs['site_lon'] = site_lon
-        ds.attrs['site_lat'] = site_lat
+        dsout.attrs['site_lon'] = site_lon
+        dsout.attrs['site_lat'] = site_lat
     
     encoding = {var: comp for var in dsout.data_vars}    
     dsout.to_netcdf(cfg.OUTNAME, format='NETCDF4_CLASSIC', unlimited_dims='time', encoding=encoding)
