@@ -144,7 +144,7 @@ def classification(biome, all_pfts, data):
 
     # Classify shrubs
     SclShrubPFT = ['TeE_s', 'TeR_s']        # sclerophyllous shrubs
-    CldShrubPFT = ['BE_ts', 'BS_s']          # cold zone shrubs
+    CldShrubPFT = ['BE_s'] #, 'BS_s']          # cold zone shrubs
     ShrubPFT = SclShrubPFT + CldShrubPFT    # total shrubs
 
     # Special tree PFT groups
@@ -160,10 +160,10 @@ def classification(biome, all_pfts, data):
     mesic_woody = mesic_tebe_trees + CldShrubPFT + ['TeNE'] + boreal_trees + tebs_trees
     xeric_woody = xeric_tebe_trees + SclShrubPFT
     
-    mesic_decidious = tebs_trees + ['TeNE'] + ['BBS_itm'] + ['BS_s']
+    mesic_decidious = tebs_trees + ['TeNE'] + ['BBS_itm'] #+ ['BS_s']
 
     be_woody = ['TeBE_itm', 'TeBE_tm', 'TeBE_itscl', 'TeE_s', 'BBE_tm', 'BE_ts']
-    bs_woody = ['TeBS_itm', 'TeBS_tm', 'BBS_itm', 'BS_s', 'TeR_s']
+    bs_woody = ['TeBS_itm', 'TeBS_tm', 'BBS_itm', 'TeR_s'] # BS_S
     
     boreal_pfts = boreal_trees + CldShrubPFT
     
@@ -201,16 +201,16 @@ def classification(biome, all_pfts, data):
         # forest threshold
         if (d.lai_t >= FT ):
             # forests
-            if d.fr(tebe_trees + ['TeNE']) >= 0.5:
+            if d.fr(tebe_trees) >= 0.5:
                 # Valdivian Rainforest
                 b = biome.VRF
-            elif d.fr(tebs_trees + ['TeNE']) > 0.5:
+            elif d.fr(tebs_trees) > 0.5:
                 # Temperate Broadleaf Decidious Forest
                 b = biome.DMF   # decidious Maule forest
-            elif d.fr(boreal_pfts, woody=True) >= 0.5 and d.fr(['BBE_itm']) > d.fr(['BBS_itm']): #d.fr(be_woody, woody=True) > d.fr(bs_woody, woody=True):
+            elif d.fr(boreal_pfts, woody=True) >= 0.5 and d.fr(['BBE_itm']) > d.fr(['BBS_itm', 'BE_s']): #d.fr(be_woody, woody=True) > d.fr(bs_woody, woody=True):
                 # Magellanic Forest/ Woodland 
                 b = biome.MFW
-            elif d.fr(boreal_pfts, woody=True) >= 0.5 and d.fr(['BBE_itm']) <= d.fr(['BBS_itm']): #d.fr(be_woody, woody=True) <= d.fr(bs_woody, woody=True):
+            elif d.fr(boreal_pfts, woody=True) >= 0.5 and d.fr(['BBE_itm']) <= d.fr(['BBS_itm','BE_s']): #d.fr(be_woody, woody=True) <= d.fr(bs_woody, woody=True):
                 # Cold decidious Forest/ Woodland 
                 b = biome.CDF
             else:
@@ -218,14 +218,14 @@ def classification(biome, all_pfts, data):
                 b = biome.MixF
 
         # N. parkland ???
-        elif (d.lai_t >= 1.0 and (d.lai_g / d.lai_tot) >= 0.66):
+        elif (d.lai_t >= 1.0 and (d.lai_g / d.lai_tot) >= 0.7):
             b = biome.NPL
 
         # intermediate classes
-        elif (d.lai_t >= 1.0 and d.fr(boreal_pfts, woody=True) >= 0.5 and d.fr(['BBE_itm']) > d.fr(['BBS_itm'])):  #d.fr(be_woody, woody=True) > d.fr(bs_woody, woody=True)):
+        elif (d.lai_t >= 1.0 and d.fr(boreal_pfts, woody=True) >= 0.5 and d.fr(['BBE_itm']) > d.fr(['BBS_itm','BE_s'])):  #d.fr(be_woody, woody=True) > d.fr(bs_woody, woody=True)):
             # Magellanic Forest/ Woodland (2nd chance)
             b = biome.MFW
-        elif (d.lai_t >= 1.0 and d.fr(boreal_pfts, woody=True) >= 0.5 and d.fr(['BBE_itm']) <= d.fr(['BBS_itm'])): #d.fr(be_woody, woody=True) <= d.fr(bs_woody, woody=True)):
+        elif (d.lai_t >= 1.0 and d.fr(boreal_pfts, woody=True) >= 0.5 and d.fr(['BBE_itm']) <= d.fr(['BBS_itm','BE_s'])): #d.fr(be_woody, woody=True) <= d.fr(bs_woody, woody=True)):
             # Cold Decidious Forest/ Woodland (2nd chance)
             b = biome.CDF
             
@@ -234,30 +234,30 @@ def classification(biome, all_pfts, data):
             if d.fr(xeric_woody, woody=True) >= 0.5:
                 # Sclerophyllous Woodland/ Matorral
                 b = biome.SclW
-            elif d.fr(mesic_woody, woody=True) > 0.5 and d.fr(['BBE_itm']) <= d.fr(['BBS_itm']):
+            elif d.fr(mesic_woody, woody=True) > 0.5 and d.fr(['BBE_itm']) <= d.fr(['BBS_itm','BE_s']):
                 b = biome.MeW # mesic woodland
-            elif d.fr(mesic_woody, woody=True) > 0.5 and d.fr(['BBE_itm']) > d.fr(['BBS_itm']):
+            elif d.fr(mesic_woody, woody=True) > 0.5 and d.fr(['BBE_itm']) > d.fr(['BBS_itm','BE_s']):
                 b = biome.MFW # magellanic forest woodland
             else:
                 # ???
                 b = 99
                 
         # matorral (low shrub)
-        elif d.lai_tot >= 0.2 and (d.lai_g / d.lai_tot) < 0.75 and d.fr(xeric_woody) >= d.fr(mesic_woody):
+        elif d.lai_tot >= 0.2 and (d.lai_g / d.lai_tot) < 0.7 and d.fr(xeric_woody) >= d.fr(mesic_woody):
             # arid shrubland or mattoral
             if d.lai_tot >= 0.5:
                 b = biome.Mat
             else:
                 b = biome.ASh            
                 
-        elif d.lai_tot >= 0.2  and (d.lai_g / d.lai_tot) < 0.75 and d.fr(xeric_woody) < d.fr(mesic_woody):
+        elif d.lai_tot >= 0.2  and (d.lai_g / d.lai_tot) < 0.7 and d.fr(xeric_woody) < d.fr(mesic_woody):
             # mesic woodland
             #if d.sum_lai(['BBE_itm']) >= 0.1:
             #    b = biome.MFW
             #else:
             b = biome.MeW
     
-        elif (d.lai_g / d.lai_tot) >= 0.75:
+        elif (d.lai_g / d.lai_tot) >= 0.7:
             b = biome.St
         else:
             b = 100
