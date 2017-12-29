@@ -182,9 +182,30 @@ def main(cfg):
             agg.append(xr.ones_like(u) * -1)
         agg.append(u)
 
+    # da0 3d array of fractions
     da0 = xr.concat(agg, dim='biome')
+    
+    # da1 2d array of dominant biome id (-1: nodata, 0, ...)
+    #     remove 1 for biome enum
     da1 = da0.argmax(dim='biome')
-    da1_2nd = np.argsort(da0.values, axis=0)[-2] - 1
+    
+    # produce alternative result by eliminating 1st choice
+    # da0_repl 2d array 1: desert (=1) and fraction of maximum is less than 60% 
+    da0_repl = np.where((da0.max(dim='biome').values < 60) & (da1.values == 1), 1, 0)
+    
+    # get index array of max biomes (2d), eliminate dominant one 
+    ind = da0.argmax(dim='biome').values 
+    #ind[:] = np.where(ind==-1, np.nan, ind)
+    
+    # advanced indexing
+    m,n = ind.shape
+    I,J = np.ogrid[:m,:n]
+    x = da0.values
+    x[ind,I,J]=-1
+    da0[:] = x
+    
+    # get the argmax again (without the old dominant ones)
+    da1b = da0.argmax(dim='biome')
     
     # if argmax returned 0 it was all-nan: skip cell
     # also, due to the dummy layer we need to subtract 1 to get true 
@@ -192,10 +213,9 @@ def main(cfg):
     
     # fill desert pixels (only desert > 50% remains)
     da2 = da1.where(da1 > 0) - 1 
+    da2[:] = np.where(da0_repl == 1, da1b.values - 1, da2.values ) 
     
     # gap filling disabled for the moment (check)
-    #da2[:] = np.where((da2.values == 0) & (da0.max(dim='biome') < 50.0), da1_2nd, da2.values)
-    #da2 = da1.where(ds['fraction'].sum(dim=['lf_id'])>0)
     
     #da2 = xr.concat(agg, dim='biome').argmax(dim='biome').where(ds['fraction'].sum(dim='lf_id')>0)
     ds['biome'] = da2 #da2.where(da2 >= 0)
