@@ -3,6 +3,7 @@ from collections import Sequence
 import numpy as np
 import xarray as xr
 
+import math
 import matplotlib.pyplot as plt
 import matplotlib
 import matplotlib.patches as mpatches
@@ -16,6 +17,7 @@ import cartopy.io.shapereader as shpreader
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 from cartopy.mpl.geoaxes import GeoAxes
 
+from ..tools import enum
 
 
 __all__ = ['ElevationTransect', 'Map', 'MapContainer']
@@ -232,7 +234,26 @@ def draw_elevationtransect_layout(ax, orientation=None, name=None,
     #gl.ylabel_style = {'size': 10, 'color': fg_color}
 
     # panel label
+    do_subscript = False
+    
     if name:
+        # hack to create subscript
+        if do_subscript:
+            x = name
+            if '_itm' in x:
+                x = x.replace('_itm', '$_{itm}$')
+            elif '_tm' in x:
+                x = x.replace('_tm', '$_{tm}$')
+            elif 'TeBE_itscl' in x:
+                x = x.replace('_itscl', '$_{itscl}$')
+            elif 'TeB_s' in x:
+                x = 'MB$_s$'
+            elif 'TeE_s' in x:
+                x = 'ME$_s$'
+            elif 'TeE_s' in x:
+                x = 'B$_s$'
+            name = x
+            
         ax.annotate(name, xy=(0, 1), xycoords='axes fraction', fontsize=12,
             xytext=(5, -5), textcoords='offset points', ha='left', va='top', zorder=10000,
             bbox={'facecolor':'white', 'alpha':1, 'pad':5}, clip_on=True)
@@ -293,6 +314,8 @@ class MapContainer( Sequence ):
             axisgrid_kwargs['axes_class'] = axes_class
         else:
             axisgrid_kwargs['aspect'] = False
+            axisgrid_kwargs['axes_pad'] = 0.3
+
 
         self.axes = AxesGrid(self.fig, 111, **axisgrid_kwargs)
 
@@ -382,6 +405,64 @@ class MapContainer( Sequence ):
                 p = data.plot(ax=self.map[i].ax, zorder=1000, 
                             add_colorbar=True, cbar_ax=self.axes.cbar_axes[0], **kwargs)
                 self._plots.append(p)
+
+    def plot_data_discrete(self, variable='', **kwargs):
+        # joined limits
+        
+        levels = []
+        colors = []
+    
+        # required arguments: levels, colors 
+        if 'biome' in kwargs.keys():
+            print type(kwargs['biome'])
+            levels = kwargs['biome'].items
+            del kwargs['biome']
+             # get keys from enum
+            
+        if 'color_mapping' in kwargs.keys():
+            for l in levels:
+                print l
+                print kwargs['color_mapping']
+                colors.append(kwargs['color_mapping'][l])
+            del kwargs['color_mapping']
+
+        kwargs = check_data_limits(self.map, variable, kwargs)
+        # get joined data limits
+        
+        for i in range(len(self.map)):
+            if variable:
+                data = self.map[i].data[variable]
+            else:                 
+                data = self.map[i].data
+
+            if np.isnan(data.values).all():
+                self._plots.append(None)
+            else:                        
+                p = data.plot(ax=self.map[i].ax, zorder=1000, 
+                            levels=levels, colors=colors,
+                            add_colorbar=False, **kwargs)
+                self.map[i].ax.set_ylabel("")
+                disable_xlabel = True
+                if len(self.map)<=2:
+                    disable_xlabel = False
+                elif i==int(math.ceil(len(self.map)/2)) and len(self.map)%2 != 0:
+                    disable_xlabel = False
+                else:
+                    pass
+
+                if disable_xlabel:
+                    self.map[i].ax.set_xlabel("")
+                else:
+                    self.map[i].ax.set_xlabel("Elevation [m]")
+
+
+                self.map[i].ax.set_ylabel("")
+                self._plots.append(p)
+
+        # create discrete legend
+        # self.axes.cbar_axes[0]
+        self.fig.delaxes(self.axes.cbar_axes[0]) 
+        
     
     def plot_data_contour(self, variable='', clevels=None, **kwargs):
         # joined limits
@@ -391,7 +472,7 @@ class MapContainer( Sequence ):
         
         # use second set of levels for contour lines, otherwise use same
         if 'levels' in kwargs.keys():
-            clevels = clevels if clevels else levels
+            clevels = clevels if clevels else kwargs['levels']
         
         for i in range(len(self.map)):
             if variable:

@@ -32,6 +32,9 @@ click.Context.get_usage = click.Context.get_help
 @click.option('-c', 'config', metavar='MYCONF', default=None,
                     help='use MYCONF file as config')
 
+@click.option('-d', 'default', is_flag=True, default=False,
+                    help='only process default stand (no landforms)')
+
 @click.option('-l', 'last_nyears', type=click.INT, default=None, metavar='NYEARS',
                     help='use number of years at end of run (alternative to -y)')
 
@@ -59,7 +62,7 @@ click.Context.get_usage = click.Context.get_help
 @click.argument('indir', type=click.Path(exists=True))
 @click.argument('outname') 
 
-def cli(avg, config, last_nyears, use_month_dim, refinfo, smode, storeconfig, years, indir, outname, verbose):
+def cli(avg, config, default, last_nyears, use_month_dim, refinfo, smode, storeconfig, years, indir, outname, verbose):
     """LPJ-GUESS 4.0 subpixel mode netCDF convert tool
     
     This tools nonverts default and subpixel mode output from
@@ -105,6 +108,7 @@ def cli(avg, config, last_nyears, use_month_dim, refinfo, smode, storeconfig, ye
     # the setup dictionary to convert into a bunch obj
     config_data=dict(AVG=avg,
                      CONFIG=config,
+                     DEFAULT=default,
                      LAST_NYEARS=last_nyears,
                      USE_MONTH_DIM=use_month_dim,
                      REFINFO=refinfo,

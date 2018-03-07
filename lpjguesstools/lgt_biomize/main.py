@@ -54,10 +54,13 @@ class Biomization( object ):
             self._biomes = biomes
             self._lut = classification
 
-    def __call__(self, da):
+    def __call__(self, da, precip=None):
         """Execute classification on supplied DataArray."""
         if self._pfts is None:
             self._pfts = da['pft'].values
+        # catch desert
+        #if precip < 75:
+        #    return 0
         return self._classify(da)
 
     def _classify(self, da, class_var='sp_lai'):
@@ -67,6 +70,10 @@ class Biomization( object ):
     def biomes(self):
         """Return the biome names of this classification."""
         return self._biomes.content
+    
+    def biomes_int(self):
+        """Return the biome names of this classification as int representation."""
+        return self._biomes.items
 
     def pfts(self):
         """Return the pft names used in this biome classification."""
@@ -84,6 +91,8 @@ def main(cfg):
         lf_ids  = ds['lf_id'].values
         pfts    = ds['pft'].values
 
+        # this is ok since precip is uniform over lf_ids
+        da_precip = ds['sp_mprec'].load().isel(lf_id=0).sum(dim='month', skipna=False)
 
     # init the classifier
     biomizer = Biomization(biome_type=cfg.CLASSIFICATION)
@@ -143,7 +152,8 @@ def main(cfg):
                 for zx, _lf_id in enumerate(lf_ids):
                     #if da_frac.sel(lat=_lat, lon=_lon, lf_id=_lf_id) > 0:
                     if da_frac[zx, jx, ix] > 0:
-                        b = biomizer( da_lai.sel(lat=_lat, lon=_lon, lf_id=_lf_id) )
+                        precip=da_precip.sel(lat=_lat, lon=_lon)
+                        b = biomizer( da_lai.sel(lat=_lat, lon=_lon, lf_id=_lf_id), precip=da_precip.sel(lat=_lat, lon=_lon) )
                         da_biomes[zx, jx, ix] = b
 
 
@@ -163,16 +173,58 @@ def main(cfg):
     # sum fractions containing a given biome 
     # returns: stacked array (z: axis biome id (0...8)
     agg = []
-    for b, bname in enumerate(biomizer.biomes()):
+    for b, b_int in enumerate(biomizer.biomes_int()):
         fr=ds['fraction'].where(ds['biome_lf']==b)
         u=fr.sum(dim='lf_id')
+        u=u.where(u>0)
+        # add a dummy layer to differentiate all-nan from biome 0
+        if b==0:
+            agg.append(xr.ones_like(u) * -1)
         agg.append(u)
 
-    da2 = xr.concat(agg, dim='biome').argmax(dim='biome').where(ds['fraction'].sum(dim='lf_id')>0)
+    # da0 3d array of fractions
+    da0 = xr.concat(agg, dim='biome')
     
-    ds['biome'] = da2.where(da2 >= 0)
+    # da1 2d array of dominant biome id (-1: nodata, 0, ...)
+    #     remove 1 for biome enum
+    da1 = da0.argmax(dim='biome')
+    
+    if cfg.SMODE == False:
+        # produce alternative result by eliminating 1st choice
+        # da0_repl 2d array 1: desert (=1) and fraction of maximum is less than 60% 
+        da0_repl = np.where((da0.max(dim='biome').values < 60) & (da1.values == 1), 1, 0)
+    
+        # get index array of max biomes (2d), eliminate dominant one 
+        ind = da0.argmax(dim='biome').values 
+        #ind[:] = np.where(ind==-1, np.nan, ind)
+    
+        # advanced indexing
+        m,n = ind.shape
+        I,J = np.ogrid[:m,:n]
+        x = da0.values
+        x[ind,I,J]=-1
+        da0[:] = x
+    
+        # get the argmax again (without the old dominant ones)
+        da1b = da0.argmax(dim='biome')
+    
+        # if argmax returned 0 it was all-nan: skip cell
+        # also, due to the dummy layer we need to subtract 1 to get true 
+        # biome_id number
+    
+    # fill desert pixels (only desert > 50% remains)
+    da2 = da1.where(da1 > 0) - 1 
+
+    if cfg.SMODE == False:    
+        da2[:] = np.where(da0_repl == 1, da1b.values - 1, da2.values ) 
+    
+    #da2 = xr.concat(agg, dim='biome').argmax(dim='biome').where(ds['fraction'].sum(dim='lf_id')>0)
+    ds['biome'] = da2 #da2.where(da2 >= 0)
     ds['biome'].attrs['_FillValue'] = NODATA
     ds['biome'].attrs['units'] = 'biome_id'
+    
+    if cfg.SMODE:
+        ds['lf_id'].attrs['axis'] = 'Y' 
     
     # add compression
     comp = dict(zlib=True, complevel=5)
