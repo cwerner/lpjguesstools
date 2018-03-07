@@ -42,8 +42,6 @@ from ._geoprocessing import analyze_filename_dem, \
                             compute_spatial_dataset
 
 from ._srtm1 import split_srtm1_dataset
-import _xr_geo
-import _xr_tile
 
 __version__ = "0.0.2"
 
