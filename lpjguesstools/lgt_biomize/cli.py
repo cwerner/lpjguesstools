@@ -4,7 +4,7 @@
 import click
 import logging
 
-from main import main
+from .main import main
 
 # import constants
 from .. import EPILOG

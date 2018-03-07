@@ -262,6 +262,6 @@ def classification(biome, all_pfts, data):
             b = 100
             
     if b >= 90:
-        print 'UNCLASSIFIED', b
+        print('UNCLASSIFIED', b)
         b = 99
     return b

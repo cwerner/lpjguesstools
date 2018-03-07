@@ -42,10 +42,8 @@ from ._geoprocessing import analyze_filename_dem, \
                             compute_spatial_dataset
 
 from ._srtm1 import split_srtm1_dataset
-import _xr_geo
-import _xr_tile
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 log = logging.getLogger(__name__)
 
@@ -462,7 +460,7 @@ def build_site_netcdf(soilref, elevref, extent=None):
                 elif np.isfinite(ds_soil[v][i, j+1]):
                     ds_soil[v][i, j] = ds_soil[v][i, j+1].copy(deep=True)
                 else:
-                    print 'neighbours have nodata !!!'
+                    log.warn('neighbours have nodata !')
                 x = ds_soil[v][i, j].to_masked_array()
 
         smask2 = np.where(ds_soil['TOTC'].to_masked_array().mask, 1, 0)
@@ -756,7 +754,6 @@ def main(cfg):
 
     landform_mask = np.where(landformnc['lfcnt'].values == -9999, np.nan, 1)
     #landform_mask = np.where(landform_mask == True, np.nan, 1)
-    print landform_mask
     for v in sitenc.data_vars:
         sitenc[v][:] = sitenc[v].values * landform_mask
 
