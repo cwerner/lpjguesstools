@@ -18,7 +18,7 @@ import sys
 
 from .extra import set_config, get_config, parse_config #, RefDataBuilder
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 log = logging.getLogger(__name__)
 
@@ -238,7 +238,7 @@ def get_annual_data(var, landforms, df_frac, cfg,
         
         # if default (lfid=0), we do not join but give a default fraction
         if cfg.DEFAULT:
-            print df_frac.head()
+            log.info(df_frac.head())
             df['fraction'] = 1
         else:
             df = df.merge(df_frac, left_index=True, right_index=True)

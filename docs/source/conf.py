@@ -64,7 +64,6 @@ version = re.search('^__version__\s*=\s*"(.*)"',
                     open(os.path.abspath('ldndc2nc/_ldndc2nc.py')).read(), re.M).group(1)
 
 
-#version = '0.0.1'
 # The full version, including alpha/beta/rc tags.
 release = version
 

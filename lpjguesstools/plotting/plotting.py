@@ -116,7 +116,7 @@ def check_data_limits(mc, var, kwargs):
     if 'center' not in kwargs.keys():
         # check valid vmin/ vmax
         if kwargs['vmin'] > kwargs['vmax']:
-            print 'Specified vmin > vmax (using vmin, vmax from data)'
+            print('Specified vmin > vmax (using vmin, vmax from data)')
             kwargs['vmin'] = VMIN
             kwargs['vmax'] = VMAX
 
@@ -414,15 +414,15 @@ class MapContainer( Sequence ):
     
         # required arguments: levels, colors 
         if 'biome' in kwargs.keys():
-            print type(kwargs['biome'])
+            print(type(kwargs['biome']))
             levels = kwargs['biome'].items
             del kwargs['biome']
              # get keys from enum
             
         if 'color_mapping' in kwargs.keys():
             for l in levels:
-                print l
-                print kwargs['color_mapping']
+                print(l)
+                print(kwargs['color_mapping'])
                 colors.append(kwargs['color_mapping'][l])
             del kwargs['color_mapping']
 

@@ -16,7 +16,7 @@ import sys
 #from .cli import cli
 #from .extra import set_config, get_config, parse_config #, RefDataBuilder
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 log = logging.getLogger(__name__)
 
@@ -126,14 +126,16 @@ def main(cfg):
         
         if cfg.LIMIT:
             for tx, _year in enumerate(da_lai.coords['time'][:1500]):
-                if tx % 250 == 0: print tx
+                if tx % 250 == 0:
+                    print(tx)
                 for zx, _lf_id in enumerate(lf_ids):
                     if da_frac[zx] > 0:
                         b = biomizer( da_lai.sel(time=_year, lf_id=_lf_id) )
                         da_biomes[zx, tx] = b        
         else:
             for tx, _year in enumerate(da_lai.coords['time']):
-                if tx % 1000 == 0: print tx
+                if tx % 1000 == 0:
+                    print(tx)
                 for zx, _lf_id in enumerate(lf_ids):
                     if da_frac[zx] > 0:
                         b = biomizer( da_lai.sel(time=_year, lf_id=_lf_id) )
@@ -147,7 +149,7 @@ def main(cfg):
 
         # loop over lf_ids and compute biomization in this layer
         for jx, _lat in enumerate(da_frac.coords['lat']):
-            print jx
+            print(jx)
             for ix, _lon in enumerate(da_frac.coords['lon']):
                 for zx, _lf_id in enumerate(lf_ids):
                     #if da_frac.sel(lat=_lat, lon=_lon, lf_id=_lf_id) > 0:
@@ -235,7 +237,7 @@ def main(cfg):
         ds.to_netcdf(cfg.OUTFILE[:-3] + '_biome.nc', format='NETCDF4_CLASSIC', encoding=encoding)
         pickle.dump(ds, open(cfg.OUTFILE[:-3] + '_biome.pkl', "wb" ), protocol=-1 )
     except:
-        print "Unexpected error:", sys.exc_info()[0]
+        log.error("Unexpected error:", sys.exc_info()[0])
         pickle.dump(ds, open(cfg.OUTFILE[:-3] + '_biome.pkl', "wb" ), protocol=-1 )
 
     # --- section 2 ---

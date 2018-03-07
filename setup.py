@@ -8,7 +8,7 @@ from codecs import open
 from os import path
 import re
 
-version = '0.0.1'
+version = '0.0.2'
 #version = re.search('^__version__\s*=\s*"(.*)"',
 #                    open('lpjguesstools/lgt_convert/lgt_convert.py').read(), re.M).group(1)
 
@@ -77,6 +77,7 @@ setup(name='lpjguesstools',
           'Development Status :: 3 - Alpha',
           'Intended Audience :: LPJ-GUESS scientists',
           'Programming Language :: Python :: 2',
+          'Programming Language :: Python :: 3',
       ],
       keywords='LPJ-GUESS preprocessing postprocessing netcdf',
       zip_safe= False,
