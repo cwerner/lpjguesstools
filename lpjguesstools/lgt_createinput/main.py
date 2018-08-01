@@ -59,7 +59,7 @@ def time_dec(func):
     def wrapper(*arg, **kwargs):
         t = time.time()
         res = func(*arg, **kwargs)
-        log.debug('DURATION: <%s> : ' % func.func_name + str(time.time()-t))
+        log.debug('DURATION: <%s> : ' % func.__name__ + str(time.time()-t))
         return res
     return wrapper
 
