@@ -107,7 +107,7 @@ def define_landform_classes(step, limit, TYPE='SIMPLE'):
     # - step: elevation interval for landform groups (def: 400m )
     # - limit: elevation limit [inclusive, in m]
 
-    ele_breaks = [-1000] + range(step, limit, step) + [10000]
+    ele_breaks = [-1000] + list(range(step, limit, step)) + [10000]
     ele_cnt = range(1, len(ele_breaks))
 
     # code system [code position 2 & 3, 1= elevations_tep]
