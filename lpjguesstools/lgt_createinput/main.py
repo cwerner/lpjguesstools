@@ -528,6 +528,13 @@ def build_landform_netcdf(lf_full_set, df_dict, cfg, elevation_levels, refnc=Non
     da_aspect = xr.DataArray(_blank.copy(), name='aspect', coords=COORDS)
     if has_soildepth(): da_soildepth = xr.DataArray(_blank.copy(), name='soildepth', coords=COORDS)
 
+    frac_lf = df_dict['frac_lf']
+    slope_lf = df_dict['slope_lf']
+    asp_slope_lf = df_dict['asp_slope_lf']
+    elev_lf = df_dict['elev_lf']
+    aspect_lf = df_dict['aspect_lf']
+    if has_soildepth(): soildepth_lf = df_dict['soildepth_lf']
+    
     # check that landform coordinates are in refnc
     df_extent = [frac_lf.lon.min(), frac_lf.lat.min(), frac_lf.lon.max(), frac_lf.lat.max()]
     log.debug('df_extent: %s' % str(df_extent))
