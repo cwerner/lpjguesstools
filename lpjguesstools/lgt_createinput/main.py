@@ -507,7 +507,7 @@ def build_landform_netcdf(lf_full_set, df_dict, cfg, elevation_levels, refnc=Non
     """Build landform netcdf based on refnc dims and datatables."""
 
     def has_soildepth():
-        if 'soildepth' in df_dict:
+        if 'soildepth_lf' in df_dict:
             return True
         else:
             return False
@@ -755,8 +755,8 @@ def main(cfg):
     log.info("Building 2D netCDF files")
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
 
-    df_dict = dict(df_frac=df_frac, df_elev=df_ele, df_slope=df_slope, 
-                   df_asp_slope=df_asp_slope, df_aspect=df_aspect)
+    df_dict = dict(frac_lf=df_frac, elev_lf=df_ele, slope_lf=df_slope, 
+                   asp_slope_lf=df_asp_slope, aspect_lf=df_aspect)
 
     landformnc = build_landform_netcdf(lf_classes, df_dict, cfg, lf_ele_levels, refnc=sitenc)
 
