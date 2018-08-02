@@ -380,7 +380,7 @@ def compute_statistics(cfg):
     slope_lf = create_stats_table(df, 'slope')
     asp_slope_lf = create_stats_table(df, 'asp_slope')
     aspect_lf = create_stats_table(df, 'aspect')
-     return (frac_lf, elev_lf, slope_lf, asp_slope_lf, aspect_lf)
+    return (frac_lf, elev_lf, slope_lf, asp_slope_lf, aspect_lf)
 
 
 def is_3d(ds, v):
