@@ -217,6 +217,9 @@ def get_tile_summary(ds, cutoff=0):
     df['asp_slope'] = -1
     df['aspect'] = -1
 
+    if 'soildepth' in ds.data_vars:
+        df['soildepth'] = -1
+
     a_lf = ds['landform_class'].to_masked_array()
 
     # average aspect angles
@@ -239,10 +242,18 @@ def get_tile_summary(ds, cutoff=0):
         lf_asp_slope = ds['asp_slope'].values[ix].mean()
         lf_elevation = ds['elevation'].values[ix].mean()
         lf_aspect = avg_aspect(ds['aspect'].values[ix])
+
+        if 'soildepth' in ds.data_vars:
+            lf_soildepth = ds['soildepth'].values[ix].mean()
+            df.loc[i, 'soildepth'] = lf_soildepth
+
         df.loc[i, 'slope'] = lf_slope
         df.loc[i, 'asp_slope'] = lf_asp_slope
         df.loc[i, 'elevation'] = lf_elevation
         df.loc[i, 'aspect']    = lf_aspect
+        if 'soildepth' in ds.data_vars:
+            df.loc[i, 'soildepth'] = lf_soildepth
+
     return df
 
 
