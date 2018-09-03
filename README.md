@@ -1,7 +1,7 @@
 LPJGUESSTOOLS: LPJ-GUESS4 pre- and postprocessing tools
 =======================================================
 
-version number: 0.0.1 author: Christian Werner
+version number: 0.0.2 author: Christian Werner
 (<christian.werner@senckenberg.de>)
 
 Overview

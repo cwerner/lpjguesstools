@@ -76,7 +76,6 @@ setup(name='lpjguesstools',
       classifiers=[
           'Development Status :: 3 - Alpha',
           'Intended Audience :: LPJ-GUESS scientists',
-          'Programming Language :: Python :: 2',
           'Programming Language :: Python :: 3',
       ],
       keywords='LPJ-GUESS preprocessing postprocessing netcdf',
