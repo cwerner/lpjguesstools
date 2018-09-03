@@ -59,7 +59,7 @@ def time_dec(func):
     def wrapper(*arg, **kwargs):
         t = time.time()
         res = func(*arg, **kwargs)
-        log.debug('DURATION: <%s> : ' % func.func_name + str(time.time()-t))
+        log.debug('DURATION: <%s> : ' % func.__name__ + str(time.time()-t))
         return res
     return wrapper
 
@@ -74,7 +74,9 @@ varLF = {'lfcnt': ('lfcnt', 'Number of landforms', 'lfcnt', '-', 1.0),
          'aspect': ('aspect', 'Aspect', 'aspect', 'deg', 1.0),
          'asp_slope': ('asp_slope', 'Aspect-corrected Slope', 'asp_slope', 'deg', 1.0),
          'fraction': ('fraction', 'Landform Fraction', 'fraction', '1/1', 1.0),
-         'elevation': ('elevation', 'Elevation', 'elevation', 'm', 1.0)}
+         'elevation': ('elevation', 'Elevation', 'elevation', 'm', 1.0),
+         'soildepth': ('soildepth', 'Soil Depth', 'soildepth', 'm', 1.0)
+        }
 
 soil_vars = sorted(varSoil.keys())
 lf_vars = sorted(varLF.keys())
@@ -107,7 +109,7 @@ def define_landform_classes(step, limit, TYPE='SIMPLE'):
     # - step: elevation interval for landform groups (def: 400m )
     # - limit: elevation limit [inclusive, in m]
 
-    ele_breaks = [-1000] + range(step, limit, step) + [10000]
+    ele_breaks = [-1000] + list(range(step, limit, step)) + [10000]
     ele_cnt = range(1, len(ele_breaks))
 
     # code system [code position 2 & 3, 1= elevations_tep]
@@ -215,6 +217,9 @@ def get_tile_summary(ds, cutoff=0):
     df['asp_slope'] = -1
     df['aspect'] = -1
 
+    if 'soildepth' in ds.data_vars:
+        df['soildepth'] = -1
+
     a_lf = ds['landform_class'].to_masked_array()
 
     # average aspect angles
@@ -237,10 +242,18 @@ def get_tile_summary(ds, cutoff=0):
         lf_asp_slope = ds['asp_slope'].values[ix].mean()
         lf_elevation = ds['elevation'].values[ix].mean()
         lf_aspect = avg_aspect(ds['aspect'].values[ix])
+
+        if 'soildepth' in ds.data_vars:
+            lf_soildepth = ds['soildepth'].values[ix].mean()
+            df.loc[i, 'soildepth'] = lf_soildepth
+
         df.loc[i, 'slope'] = lf_slope
         df.loc[i, 'asp_slope'] = lf_asp_slope
         df.loc[i, 'elevation'] = lf_elevation
         df.loc[i, 'aspect']    = lf_aspect
+        if 'soildepth' in ds.data_vars:
+            df.loc[i, 'soildepth'] = lf_soildepth
+
     return df
 
 
@@ -501,8 +514,14 @@ def build_site_netcdf(soilref, elevref, extent=None):
 
 
 @time_dec
-def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf, aspect_lf, cfg, elevation_levels, refnc=None):
+def build_landform_netcdf(lf_full_set, df_dict, cfg, elevation_levels, refnc=None):
     """Build landform netcdf based on refnc dims and datatables."""
+
+    def has_soildepth():
+        if 'soildepth_lf' in df_dict:
+            return True
+        else:
+            return False
 
     dsout = xr.Dataset()
 
@@ -518,7 +537,15 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf,
     da_asp_slope = xr.DataArray(_blank.copy(), name='asp_slope', coords=COORDS)
     da_elev = xr.DataArray(_blank.copy(), name='elevation', coords=COORDS)
     da_aspect = xr.DataArray(_blank.copy(), name='aspect', coords=COORDS)
+    if has_soildepth(): da_soildepth = xr.DataArray(_blank.copy(), name='soildepth', coords=COORDS)
 
+    frac_lf = df_dict['frac_lf']
+    slope_lf = df_dict['slope_lf']
+    asp_slope_lf = df_dict['asp_slope_lf']
+    elev_lf = df_dict['elev_lf']
+    aspect_lf = df_dict['aspect_lf']
+    if has_soildepth(): soildepth_lf = df_dict['soildepth_lf']
+    
     # check that landform coordinates are in refnc
     df_extent = [frac_lf.lon.min(), frac_lf.lat.min(), frac_lf.lon.max(), frac_lf.lat.max()]
     log.debug('df_extent: %s' % str(df_extent))
@@ -531,6 +558,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf,
         asp_slope_lf = spatialclip_df(asp_slope_lf, refnc.geo.extent)
         elev_lf = spatialclip_df(elev_lf, refnc.geo.extent)
         aspect_lf = spatialclip_df(aspect_lf, refnc.geo.extent)
+        if has_soildepth(): spatialclip_df(soildepth_lf, refnc.geo.extent) 
 
     # dump files
     frac_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_frac.csv'), index=False)
@@ -538,6 +566,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf,
     asp_slope_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_asp_slope.csv'), index=False)
     elev_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_elev.csv'), index=False)
     aspect_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_aspect.csv'), index=False)
+    if has_soildepth(): soildepth_lf.to_csv(os.path.join(cfg.OUTDIR, 'df_soildepth.csv'), index=False) 
 
     # assign dataframe data to arrays
     da_lfcnt = assign_to_dataarray(da_lfcnt, frac_lf, lf_full_set, refdata=True)
@@ -546,6 +575,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf,
     da_asp_slope = assign_to_dataarray(da_asp_slope, asp_slope_lf, lf_full_set)
     da_elev = assign_to_dataarray(da_elev, elev_lf, lf_full_set)
     da_aspect = assign_to_dataarray(da_aspect, aspect_lf, lf_full_set)
+    if has_soildepth(): da_soildepth = assign_to_dataarray(da_soildepth, soildepth_lf, lf_full_set)
 
     # store arrays in dataset
     dsout[da_lfcnt.name] = da_lfcnt
@@ -554,6 +584,7 @@ def build_landform_netcdf(lf_full_set, frac_lf, elev_lf, slope_lf, asp_slope_lf,
     dsout[da_asp_slope.name] = da_asp_slope
     dsout[da_elev.name] = da_elev
     dsout[da_aspect.name] = da_aspect
+    if has_soildepth(): dsout[da_soildepth.name] = da_soildepth
 
     for v in dsout.data_vars:
         vattr = {}
@@ -734,8 +765,11 @@ def main(cfg):
     # build netcdfs
     log.info("Building 2D netCDF files")
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
-    landformnc = build_landform_netcdf(lf_classes, df_frac, df_elev, df_slope, df_asp_slope, df_aspect, cfg,
-                                       lf_ele_levels, refnc=sitenc)
+
+    df_dict = dict(frac_lf=df_frac, elev_lf=df_ele, slope_lf=df_slope, 
+                   asp_slope_lf=df_asp_slope, aspect_lf=df_aspect)
+
+    landformnc = build_landform_netcdf(lf_classes, df_dict, cfg, lf_ele_levels, refnc=sitenc)
 
     # clip to joined mask
     #elev_mask = np.where(sitenc['elevation'].values == NODATA, 0, 1)
