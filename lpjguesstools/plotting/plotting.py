@@ -414,15 +414,12 @@ class MapContainer( Sequence ):
     
         # required arguments: levels, colors 
         if 'biome' in kwargs.keys():
-            print(type(kwargs['biome']))
             levels = kwargs['biome'].items
             del kwargs['biome']
              # get keys from enum
             
         if 'color_mapping' in kwargs.keys():
             for l in levels:
-                print(l)
-                print(kwargs['color_mapping'])
                 colors.append(kwargs['color_mapping'][l])
             del kwargs['color_mapping']
 
