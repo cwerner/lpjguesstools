@@ -336,7 +336,7 @@ class MapContainer( Sequence ):
 
         n = self.nrows_ncols[1]
         ids = range(len(self.names))
-        ids_2d = [ids[i:i+n] for i in xrange(0, len(ids), n)]
+        ids_2d = [ids[i:i+n] for i in range(0, len(ids), n)]
 
         def label_in_second_last_row(ids_2d):
             """Identify second-last row ids that need bottom labels"""
