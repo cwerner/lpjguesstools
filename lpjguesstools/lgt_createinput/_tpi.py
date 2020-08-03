@@ -53,7 +53,7 @@ def calculate_tpi(dem, slope, scalefactor, res=30, return_unclassed=False, TYPE=
     k_outer = create_kernel(radius=radius_outer)
     k_inner = create_kernel(radius=radius_inner, invert=True)
 
-    x = y = (k_outer.shape[0] - k_inner.shape[0]) / 2
+    x = y = int((k_outer.shape[0] - k_inner.shape[0]) / 2)
     k_outer[x:x+k_inner.shape[0], y:y+k_inner.shape[1]] = k_inner
 
     # compute tpi
