@@ -5,6 +5,7 @@ pyyaml
 colorlog
 Click
 fiona
+netcdf4
 numpy
 rasterio>=1.0a9
 scipy
