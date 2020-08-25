@@ -453,7 +453,7 @@ def build_site_netcdf(soilref, elevref, extent=None):
     else:
         ds_soil = ds_soil_orig.sel(lev=1.0).squeeze(drop=True)
         ds_ele = ds_ele_orig.squeeze(drop=True)
-    del ds_soil['lev']
+        del ds_soil['lev']
 
     # identify locations that need filling and use left neighbor
     smask = np.where(ds_soil['TOTC'].to_masked_array().mask, 1, 0)
