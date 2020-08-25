@@ -445,11 +445,11 @@ def build_site_netcdf(soilref, elevref, extent=None):
         lon_min, lon_max = extent[0], extent[2]
 
         # slice simulation domain
-        ds_soil = ds_soil_orig.sel(lon=((ds_soil_orig.lon >= lon_min) & (ds_soil_orig.lon <= lon_max)),
-                                   lat=((ds_soil_orig.lat >= lat_min) & (ds_soil_orig.lat <= lat_max)),
-                                   lev=1.0).squeeze(drop=True)
-        ds_ele = ds_ele_orig.sel(longitude=((ds_ele_orig.longitude >= lon_min) & (ds_ele_orig.longitude <= lon_max)),
-                                 latitude=((ds_ele_orig.latitude >= lat_min) & (ds_ele_orig.latitude <= lat_max))).squeeze(drop=True)
+        ds_soil = ds_soil_orig.where((ds_soil_orig.lon >= lon_min) & (ds_soil_orig.lon <= lon_max) &
+                                     (ds_soil_orig.lat >= lat_min) & (ds_soil_orig.lat <= lat_max) &
+                                     (ds_soil_orig.lev==1.0)).squeeze(drop=True)
+        ds_ele = ds_ele_orig.where((ds_ele_orig.longitude >= lon_min) & (ds_ele_orig.longitude <= lon_max) & 
+                                   (ds_ele_orig.latitude >= lat_min) & (ds_ele_orig.latitude <= lat_max)).squeeze(drop=True)
     else:
         ds_soil = ds_soil_orig.sel(lev=1.0).squeeze(drop=True)
         ds_ele = ds_ele_orig.squeeze(drop=True)
