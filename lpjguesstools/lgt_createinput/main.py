@@ -766,7 +766,7 @@ def main(cfg):
     log.info("Building 2D netCDF files")
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
 
-    df_dict = dict(frac_lf=df_frac, elev_lf=df_ele, slope_lf=df_slope, 
+    df_dict = dict(frac_lf=df_frac, elev_lf=df_elev, slope_lf=df_slope, 
                    asp_slope_lf=df_asp_slope, aspect_lf=df_aspect)
 
     landformnc = build_landform_netcdf(lf_classes, df_dict, cfg, lf_ele_levels, refnc=sitenc)
