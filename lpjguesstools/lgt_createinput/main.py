@@ -468,9 +468,9 @@ def build_site_netcdf(soilref, elevref, extent=None):
 
         for i, j in zip(ix, jx):
             for v in soil_vars:
-                if np.isfinite(ds_soil[v][i, j-1]):
+                if (j > 0) and np.isfinite(ds_soil[v][i, j-1]):
                     ds_soil[v][i, j] = ds_soil[v][i, j-1].copy(deep=True)
-                elif np.isfinite(ds_soil[v][i, j+1]):
+                elif (j < ds_soil[v].shape[1]-1) and np.isfinite(ds_soil[v][i, j+1]):
                     ds_soil[v][i, j] = ds_soil[v][i, j+1].copy(deep=True)
                 else:
                     log.warn('neighbours have nodata !')
