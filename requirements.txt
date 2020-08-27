@@ -10,4 +10,3 @@ numpy
 rasterio>=1.0a9
 scipy
 xarray>=0.10
-netcdf4
