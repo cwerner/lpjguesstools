@@ -13,6 +13,8 @@ import scipy
 import xarray as xr
 
 from ._tpi import calculate_tpi
+from ._xr_tile import *
+from ._xr_geo import *
 
 log = logging.getLogger(__name__)
 
@@ -114,16 +116,20 @@ def create_tile(dem, dem_mask, slope, aspect, landform, info=None, source=None):
     ENCODING_INT.update({'dtype': np.int16})
 
     ds = xr.Dataset()
-    ds['elevation'] = xr.DataArray(apply_mask(dem,m), coords=COORDS, dims=DIMS, 
-                                   encoding=ENCODING_INT)
-    ds['mask'] = xr.DataArray(dem_mask.astype('bool'), coords=COORDS, dims=DIMS, 
-                                   encoding=ENCODING_INT)
-    ds['slope'] = xr.DataArray(apply_mask(slope,m), coords=COORDS, dims=DIMS,
-                                   encoding=ENCODING_INT)
-    ds['aspect'] = xr.DataArray(apply_mask(aspect,m), coords=COORDS, dims=DIMS,
-                                   encoding=ENCODING_INT)
-    ds['landform'] = xr.DataArray(apply_mask(landform,m), coords=COORDS, dims=DIMS,
-                                   encoding=ENCODING_INT)
+    ds['elevation'] = xr.DataArray(apply_mask(dem,m), coords=COORDS, dims=DIMS) 
+    ds['elevation'].encoding = ENCODING_INT
+    
+    ds['mask'] = xr.DataArray(dem_mask.astype('bool'), coords=COORDS, dims=DIMS)
+    ds['mask'].encoding = ENCODING_INT
+    
+    ds['slope'] = xr.DataArray(apply_mask(slope,m), coords=COORDS, dims=DIMS)
+    ds['slope'].encoding = ENCODING_INT
+    
+    ds['aspect'] = xr.DataArray(apply_mask(aspect,m), coords=COORDS, dims=DIMS)
+    ds['aspect'].encoding = ENCODING_INT
+    
+    ds['landform'] = xr.DataArray(apply_mask(landform,m), coords=COORDS, dims=DIMS)
+    ds['landform'].encoding = ENCODING_INT
     
     # add scale_factor to slope encoding
     ds['slope'].tile.update_encoding(dict(scale_factor=0.1))

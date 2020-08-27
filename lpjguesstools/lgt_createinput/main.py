@@ -445,15 +445,15 @@ def build_site_netcdf(soilref, elevref, extent=None):
         lon_min, lon_max = extent[0], extent[2]
 
         # slice simulation domain
-        ds_soil = ds_soil_orig.sel(lon=((ds_soil_orig.lon >= lon_min) & (ds_soil_orig.lon <= lon_max)),
-                                   lat=((ds_soil_orig.lat >= lat_min) & (ds_soil_orig.lat <= lat_max)),
-                                   lev=1.0).squeeze(drop=True)
-        ds_ele = ds_ele_orig.sel(longitude=((ds_ele_orig.longitude >= lon_min) & (ds_ele_orig.longitude <= lon_max)),
-                                 latitude=((ds_ele_orig.latitude >= lat_min) & (ds_ele_orig.latitude <= lat_max))).squeeze(drop=True)
+        ds_soil = ds_soil_orig.where((ds_soil_orig.lon >= lon_min) & (ds_soil_orig.lon <= lon_max) &
+                                     (ds_soil_orig.lat >= lat_min) & (ds_soil_orig.lat <= lat_max) &
+                                     (ds_soil_orig.lev==1.0), drop=True).squeeze(drop=True)
+        ds_ele = ds_ele_orig.where((ds_ele_orig.longitude >= lon_min) & (ds_ele_orig.longitude <= lon_max) & 
+                                   (ds_ele_orig.latitude >= lat_min) & (ds_ele_orig.latitude <= lat_max), drop=True).squeeze(drop=True)
     else:
         ds_soil = ds_soil_orig.sel(lev=1.0).squeeze(drop=True)
         ds_ele = ds_ele_orig.squeeze(drop=True)
-    del ds_soil['lev']
+        del ds_soil['lev']
 
     # identify locations that need filling and use left neighbor
     smask = np.where(ds_soil['TOTC'].to_masked_array().mask, 1, 0)
@@ -468,9 +468,9 @@ def build_site_netcdf(soilref, elevref, extent=None):
 
         for i, j in zip(ix, jx):
             for v in soil_vars:
-                if np.isfinite(ds_soil[v][i, j-1]):
+                if (j > 0) and np.isfinite(ds_soil[v][i, j-1]):
                     ds_soil[v][i, j] = ds_soil[v][i, j-1].copy(deep=True)
-                elif np.isfinite(ds_soil[v][i, j+1]):
+                elif (j < ds_soil[v].shape[1]-1) and np.isfinite(ds_soil[v][i, j+1]):
                     ds_soil[v][i, j] = ds_soil[v][i, j+1].copy(deep=True)
                 else:
                     log.warn('neighbours have nodata !')
@@ -766,7 +766,7 @@ def main(cfg):
     log.info("Building 2D netCDF files")
     sitenc = build_site_netcdf(SOIL_NC, ELEVATION_NC, extent=cfg.REGION)
 
-    df_dict = dict(frac_lf=df_frac, elev_lf=df_ele, slope_lf=df_slope, 
+    df_dict = dict(frac_lf=df_frac, elev_lf=df_elev, slope_lf=df_slope, 
                    asp_slope_lf=df_asp_slope, aspect_lf=df_aspect)
 
     landformnc = build_landform_netcdf(lf_classes, df_dict, cfg, lf_ele_levels, refnc=sitenc)
